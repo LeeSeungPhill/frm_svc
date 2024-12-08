@@ -6,10 +6,15 @@ import uuid
 from urllib.parse import urlencode, unquote
 from decimal import Decimal, ROUND_DOWN
 import time
+from dotenv import load_dotenv
+load_dotenv()
 
-access_key = os.environ['UPBIT_ACCESS_KEY']
-secret_key = os.environ['UPBIT_SECRET_KEY']
-api_url = os.environ['UPBIT_API']
+# access_key = os.environ['UPBIT_ACCESS_KEY']
+# secret_key = os.environ['UPBIT_SECRET_KEY']
+# api_url = os.environ['UPBIT_API']
+access_key = os.getenv("UPBIT_ACCESS_KEY")
+secret_key = os.getenv("UPBIT_SECRET_KEY")
+api_url = os.getenv("UPBIT_API")
 
 def place_order(market, side, volume, price, ord_type="limit"):
     params= {

@@ -4,10 +4,15 @@ import os
 import requests
 import uuid
 from urllib.parse import urlencode, unquote
+from dotenv import load_dotenv
+load_dotenv()
 
-access_key = os.environ['UPBIT_0825_ACCESS_KEY']
-secret_key = os.environ['UPBIT_0825_SECRET_KEY']
-api_url = os.environ['UPBIT_API']
+# access_key = os.environ['UPBIT_0825_ACCESS_KEY']
+# secret_key = os.environ['UPBIT_0825_SECRET_KEY']
+# api_url = os.environ['UPBIT_API']
+access_key = os.getenv("UPBIT_0825_ACCESS_KEY")
+secret_key = os.getenv("UPBIT_0825_SECRET_KEY")
+api_url = os.getenv("UPBIT_API")
 
 print("access_key : ", access_key)
 print("secret_key : ", secret_key)
