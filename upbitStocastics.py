@@ -6,6 +6,7 @@ import time
 # 업비트 시세 캔들 데이터 가져오기
 def fetch_candles(market):
     today = datetime.now()
+    # today = (datetime.now() - timedelta(days=30)).date()
     datetime_with_time = datetime.combine(today, datetime.strptime('00:00:00', '%H:%M:%S').time())
     start_dt = datetime_with_time.isoformat() + "+09:00"
 
@@ -51,7 +52,7 @@ def check_crossover(df):
 
         # 상향 돌파 조건: %K_slow < %D 이고 이전에는 %K_slow >= %D
         if (
-            current_row["%K_slow"] > 75 and
+            current_row["%D"] > 75 and
             current_row["%K_slow"] < current_row["%D"] and
             prev_row["%K_slow"] >= prev_row["%D"]
         ):
@@ -59,8 +60,8 @@ def check_crossover(df):
 
         # 하향 이탈 조건: %K_slow < %D 이고 이전에는 %K_slow <= %D
         if (
-            current_row["%K_slow"] < 25 and
-            current_row["%K_slow"] < current_row["%D"] and
+            current_row["%D"] < 25 and
+            current_row["%K_slow"] > current_row["%D"] and
             prev_row["%K_slow"] <= prev_row["%D"]
         ):
             df.at[i, "downward_crossover"] = True
@@ -70,9 +71,8 @@ def check_crossover(df):
 # 메인 실행
 if __name__ == "__main__":
     # 감시할 코인
-    params = [
-        "KRW-BTC","KRW-XRP","KRW-ETH","KRW-GAS","KRW-ATOM","KRW-STX","KRW-SOL","KRW-SUI","KRW-ZETA","KRW-HBAR","KRW-ONDO","KRW-LINK"
-    ]
+    params = ["KRW-BTC","KRW-XRP","KRW-ETH","KRW-XLM","KRW-STX","KRW-SOL","KRW-SUI","KRW-ZETA","KRW-HBAR","KRW-ADA","KRW-AVAX","KRW-LINK"]
+    # params = ["KRW-ETH"]
     period = 9  # 기본 기간
     k_slow = 3  # %K의 슬로우 이동평균 기간
     d_slow = 3  # %D의 슬로우 이동평균 기간
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         if candles is not None:
             # Stochastic Slow 계산
             result = calculate_stochastic_slow(candles, period=period, k_slow=k_slow, d_slow=d_slow)
-            
+            # print(result)
             # 돌파 이탈 조건 확인
             result = check_crossover(result)
 
@@ -92,13 +92,13 @@ if __name__ == "__main__":
             downward_crossovers = result[result["downward_crossover"]]
 
             if not upward_crossovers.empty:
-                print("과매수(상향 돌파) 발생:",i)
+                print(i," : 과매수(상향 돌파) 발생")
                 print(upward_crossovers[["date", "close", "%K", "%K_slow", "%D"]])
 
             if not downward_crossovers.empty:
-                print("과매도(하향 이탈) 발생:",i)
+                print(i," : 과매도(하향 이탈) 발생")
                 print(downward_crossovers[["date", "close", "%K", "%K_slow", "%D"]])
 
             if upward_crossovers.empty and downward_crossovers.empty:
-                print("돌파 이탈 조건이 충족되지 않았습니다.")
+                print(i," : 돌파 이탈 조건이 충족되지 않았습니다.")
         time.sleep(0.1)        
