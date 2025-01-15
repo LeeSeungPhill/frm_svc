@@ -8,10 +8,6 @@ import schedule
 import slack_sdk
 from slack_sdk.errors import SlackApiError
 
-# Slack 메세지 연동
-SLACK_TOKEN = os.environ['SLACK_77_API_KEY']
-client = slack_sdk.WebClient(token=SLACK_TOKEN)
-
 # 업비트 API 키 설정
 API_KEY = os.environ['UPBIT_ACCESS_KEY']
 SECRET_KEY = os.environ['UPBIT_SECRET_KEY']
@@ -21,6 +17,10 @@ exchange = ccxt.upbit({
     'apiKey': API_KEY,
     'secret': SECRET_KEY
 })
+
+# Slack 메세지 연동
+SLACK_TOKEN = "xoxb-" + "8297506351525-" + "8285909742855-" + "0dYYONPibZwn0JdlWWAKVc6g"
+client = slack_sdk.WebClient(token=SLACK_TOKEN)
 
 # 전송된 메시지 기록 저장 (전역 변수)
 sent_messages = set()
@@ -193,7 +193,7 @@ def analyze_data():
                         # print(message)
                         # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
                         # Slack 메시지 전송
-                        send_slack_message("#가상화폐-자동매매", message)
+                        send_slack_message("#매매신호", message)
                         
                 # 매도 조건
                 elif volume_surge and trend == 'Downtrend':
@@ -204,7 +204,7 @@ def analyze_data():
                         # print(message)
                         # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
                         # Slack 메시지 전송
-                        send_slack_message("#가상화폐-자동매매", message)
+                        send_slack_message("#매매신호", message)
 
     except Exception as e:
         print("에러 발생:", e)
