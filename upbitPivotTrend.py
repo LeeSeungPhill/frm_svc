@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import time
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+import pytz
 import schedule
 import slack_sdk
 from slack_sdk.errors import SlackApiError
@@ -149,7 +150,7 @@ def analyze_data():
     # 감시할 코인
     params = ["BTC/KRW","XRP/KRW","ETH/KRW","XLM/KRW","STX/KRW","SOL/KRW","SUI/KRW","ZETA/KRW","HBAR/KRW","ADA/KRW","AVAX/KRW","LINK/KRW"]
     timeframe = "15m"  # 15분봉 데이터 사용
-    end_time = datetime.now()
+    end_time = datetime.now(pytz.timezone('Asia/Seoul'))
 
     try:
 
@@ -171,6 +172,8 @@ def analyze_data():
             # 결과 출력
             print(f"{i} 분석 종료 시간: {end_time}")
 
+            one_hour_ago = end_time - timedelta(hours=1)
+
             for _, row in df.iterrows():
                 timestamp = row['timestamp']
                 close = row['close']
@@ -183,28 +186,29 @@ def analyze_data():
                 #     print(f"거래량 급등하며 200일 이동평균선 돌파 신호 발생 시간: {timestamp}")
                 # elif volume_surge and close < ma_200:
                 #     print(f"거래량 급등하며 200일 이동평균선 이탈 신호 발생 시간: {timestamp}")
-
-                # 매수 조건
-                if volume_surge and trend == 'Uptrend':
-                    # print(f"상승 추세 (고점 재돌파) 신호 발생 시간: {timestamp}")
-                    if close <= support1 and close < ma_200:
-                    # if rsi < 30 and close <= support1:
-                        message = f"{i} 매수 신호 발생 시간: {timestamp}, 가격: {close}, RSI: {rsi}, Trend: {trend}"
-                        # print(message)
-                        # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
-                        # Slack 메시지 전송
-                        send_slack_message("#매매신호", message)
-                        
-                # 매도 조건
-                elif volume_surge and trend == 'Downtrend':
-                    # print(f"하락 추세 (저점 재이탈) 신호 발생 시간: {timestamp}")
-                    # if rsi > 70 and close >= resistance1:
-                    if close >= resistance1 and close > ma_200:
-                        message = f"{i} 매도 신호 발생 시간: {timestamp}, 가격: {close}, RSI: {rsi}, Trend: {trend}"
-                        # print(message)
-                        # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
-                        # Slack 메시지 전송
-                        send_slack_message("#매매신호", message)
+                
+                if timestamp >= one_hour_ago:
+                    # 매수 조건
+                    if volume_surge and trend == 'Uptrend':
+                        # print(f"상승 추세 (고점 재돌파) 신호 발생 시간: {timestamp}")
+                        if close <= support1 and close < ma_200:
+                        # if rsi < 30 and close <= support1:
+                            message = f"{i} 매수 신호 발생 시간: {timestamp}, 가격: {close}, RSI: {rsi}, Trend: {trend}"
+                            # print(message)
+                            # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
+                            # Slack 메시지 전송
+                            send_slack_message("#매매신호", message)
+                            
+                    # 매도 조건
+                    elif volume_surge and trend == 'Downtrend':
+                        # print(f"하락 추세 (저점 재이탈) 신호 발생 시간: {timestamp}")
+                        # if rsi > 70 and close >= resistance1:
+                        if close >= resistance1 and close > ma_200:
+                            message = f"{i} 매도 신호 발생 시간: {timestamp}, 가격: {close}, RSI: {rsi}, Trend: {trend}"
+                            # print(message)
+                            # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
+                            # Slack 메시지 전송
+                            send_slack_message("#매매신호", message)
 
     except Exception as e:
         print("에러 발생:", e)
