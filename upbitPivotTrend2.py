@@ -263,7 +263,7 @@ def analyze_data():
                         message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support2: {support2}, ma_200: {ma_200}"
                         print(message)
                         # Slack 메시지 전송
-                        # send_slack_message("#매매신호", message)
+                        send_slack_message("#매매신호", message)
 
                 elif volume_surge and trend == 'Downtrend' and close_m > ma_200:
                     # if close_m >= resistance1:
@@ -273,7 +273,7 @@ def analyze_data():
                         message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, resistance2: {resistance2}, ma_200: {ma_200}"
                         print(message)
                         # Slack 메시지 전송
-                        # send_slack_message("#매매신호", message)    
+                        send_slack_message("#매매신호", message)    
 
     except Exception as e:
         print("에러 발생:", e)
