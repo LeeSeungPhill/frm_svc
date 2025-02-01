@@ -151,8 +151,10 @@ def determine_trends(data):
         else:
             trend.append('Sideways')
 
-    high = data['high'].rolling(window=48, min_periods=1).mean()
-    low = data['low'].rolling(window=48, min_periods=1).mean()
+    # 최근 96개구간(15분봉기준 24시간)의 최고가
+    high = data['high'].rolling(window=96, min_periods=1).max()
+    # 최근 96개구간(15분봉기준 24시간)의 최저가
+    low = data['low'].rolling(window=96, min_periods=1).min()
 
     # 피봇 포인트 계산
     pivot = (high + low + curr_close) / 3
@@ -200,12 +202,10 @@ def send_slack_message(channel, message):
         print(f"Slack 메시지 전송 실패: {e.response['error']}")
 
 def analyze_data():
-    market = "BTC/KRW"
     # 감시할 코인
     params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW"]
-    # params = ["SOL/KRW"]
     timeframe_15m = "15m"  # 15분봉 데이터
-    timeframe_1d = "1d"    # 일봉 데이터
+    # timeframe_1d = "1d"    # 일봉 데이터
     timezone = pytz.timezone('Asia/Seoul')
     end_time = datetime.now(timezone)
 
@@ -223,20 +223,20 @@ def analyze_data():
             df_15m = calculate_indicators(df_15m)
 
             # "50일 전"의 날짜 구하기
-            days_before_50 = end_time - timedelta(days=50)
-            start_of_period = timezone.localize(datetime(days_before_50.year, days_before_50.month, days_before_50.day, 0, 0, 0))
+            # days_before_50 = end_time - timedelta(days=50)
+            # start_of_period = timezone.localize(datetime(days_before_50.year, days_before_50.month, days_before_50.day, 0, 0, 0))
 
             # 전일까지의 시점 계산
-            end_of_yesterday = datetime(end_time.year, end_time.month, end_time.day, tzinfo=timezone) - timedelta(seconds=1)
+            # end_of_yesterday = datetime(end_time.year, end_time.month, end_time.day, tzinfo=timezone) - timedelta(seconds=1)
 
             # 50일부터 전일까지의 일봉 데이터 가져오기
-            since = int(start_of_period.timestamp() * 1000)
-            ohlcv_1d = exchange.fetch_ohlcv(i, timeframe=timeframe_1d, since=since)
-            df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+            # since = int(start_of_period.timestamp() * 1000)
+            # ohlcv_1d = exchange.fetch_ohlcv(i, timeframe=timeframe_1d, since=since)
+            # df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            # df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
             # 50일부터 전일까지의 데이터 필터링 (혹시 불필요한 데이터가 포함될 경우 대비)
-            df_1d = df_1d[(df_1d['timestamp'] >= start_of_period) & (df_1d['timestamp'] <= end_of_yesterday)]
+            # df_1d = df_1d[(df_1d['timestamp'] >= start_of_period) & (df_1d['timestamp'] <= end_of_yesterday)]
 
             # 결과 출력
             print(f"{i} 분석 종료 시간: {end_time}")
@@ -258,9 +258,9 @@ def analyze_data():
                     if volume_surge and trend == 'Uptrend' and close_m < ma_200:
                         # if close_m <= support1:
                         #     rsi = calculate_rsi(df_1d)
-                        #     message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, ma_200: {ma_200}, RSI: {rsi}"
-                        if close_m <= support2:
-                            message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support2: {support2}, ma_200: {ma_200}"
+                        #     message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}, RSI: {rsi}"
+                        if close_m <= support1:
+                            message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}"
                             print(message)
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
@@ -268,9 +268,9 @@ def analyze_data():
                     elif volume_surge and trend == 'Downtrend' and close_m > ma_200:
                         # if close_m >= resistance1:
                         #     rsi = calculate_rsi(df_1d)
-                        #     message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, resistance1: {resistance1}, ma_200: {ma_200}, RSI: {rsi}"
-                        if close_m >= resistance2:
-                            message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, resistance2: {resistance2}, ma_200: {ma_200}"
+                        #     message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}, RSI: {rsi}"
+                        if close_m >= resistance1:
+                            message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}"
                             print(message)
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)    
