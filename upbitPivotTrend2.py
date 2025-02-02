@@ -175,11 +175,11 @@ def calculate_indicators(data):
     # MultiIndex를 단일 수준으로 변환
     # data.columns = ['_'.join(filter(None, col)) for col in data.columns]
 
-    # 200일 이동평균선 계산
+    # 이동평균선 계산
     data['200MA'] = data['close'].rolling(window=200, min_periods=1).mean()
     
-    # 20일 거래량 평균 계산
-    data['Volume Avg'] = data['volume'].rolling(window=20, min_periods=1).mean()
+    # 12시간 거래량 평균 계산
+    data['Volume Avg'] = data['volume'].rolling(window=48, min_periods=1).mean()
 
     # NaN 값 처리 (NaN이 있는 행은 제외)
     data.dropna(subset=['volume', 'Volume Avg'], inplace=True)

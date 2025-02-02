@@ -8,6 +8,7 @@ import pytz
 import schedule
 import slack_sdk
 from slack_sdk.errors import SlackApiError
+import psycopg2
 
 # 업비트 API 키 설정
 API_KEY = os.environ['UPBIT_ACCESS_KEY']
@@ -25,6 +26,13 @@ client = slack_sdk.WebClient(token=SLACK_TOKEN)
 
 # 전송된 메시지 기록 저장 (전역 변수)
 sent_messages = set()
+
+# 데이터베이스 연결 정보
+DB_NAME = "postgres"
+DB_USER = "postgres"
+DB_PASSWORD = "asdf1234"
+DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_PORT = "5432"  # 기본 포트
 
 # 피봇 포인트 계산 함수
 def calculate_pivot_points(df):
@@ -119,11 +127,11 @@ def calculate_indicators(data):
     # MultiIndex를 단일 수준으로 변환
     # data.columns = ['_'.join(filter(None, col)) for col in data.columns]
 
-    # 200일 이동평균선 계산
+    # 이동평균선 계산
     data['200MA'] = data['close'].rolling(window=200, min_periods=1).mean()
     
-    # 20일 거래량 평균 계산
-    data['Volume Avg'] = data['volume'].rolling(window=20, min_periods=1).mean()
+    # 12시간 거래량 평균 계산
+    data['Volume Avg'] = data['volume'].rolling(window=48, min_periods=1).mean()
 
     # NaN 값 처리 (NaN이 있는 행은 제외)
     data.dropna(subset=['volume', 'Volume Avg'], inplace=True)
@@ -146,9 +154,8 @@ def send_slack_message(channel, message):
         print(f"Slack 메시지 전송 실패: {e.response['error']}")
 
 def analyze_data():
-    market = "BTC/KRW"
     # 감시할 코인
-    params = ["BTC/KRW","XRP/KRW","ETH/KRW","XLM/KRW","STX/KRW","SOL/KRW","SUI/KRW","ZETA/KRW","HBAR/KRW","ADA/KRW","AVAX/KRW","LINK/KRW"]
+    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW"]
     timeframe = "15m"  # 15분봉 데이터 사용
     end_time = datetime.now(pytz.timezone('Asia/Seoul'))
 
@@ -180,6 +187,7 @@ def analyze_data():
                 rsi = row['rsi']
                 trend = row['Trend']
                 volume_surge = row['Volume Surge']
+                volume = row['volume']
                 ma_200 = row['200MA']
 
                 # if volume_surge and close > ma_200:
@@ -196,9 +204,69 @@ def analyze_data():
                             message = f"{i} 매수 신호 발생 시간: {timestamp}, 가격: {close}, RSI: {rsi}, Trend: {trend}"
                             # print(message)
                             # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
-                            # Slack 메시지 전송
-                            send_slack_message("#매매신호", message)
                             
+                            # PostgreSQL 데이터베이스에 연결
+                            conn = psycopg2.connect(
+                                dbname=DB_NAME,
+                                user=DB_USER,
+                                password=DB_PASSWORD,
+                                host=DB_HOST,
+                                port=DB_PORT
+                            )
+                            
+                            # 커서 생성
+                            cur1 = conn.cursor()
+                            
+                            tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
+                            
+                            # 매매신호정보 존재여부 조회
+                            cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_dtm = '"+tr_dtm+"'")
+                            result_one = cur1.fetchone()
+                            print("result_one :", result_one)
+                            
+                            if result_one is None:
+                                cur2 = conn.cursor()
+                                ins_param1 = (
+                                    i,               # prd_nm
+                                    "B",             # tr_tp
+                                    tr_dtm,          # tr_dtm
+                                    "01",            # tr_state
+                                    close,           # tr_price
+                                    volume,          # tr_volume
+                                    "PivotTrend",    # signal_name
+                                    "AUTO_SIGNAL",   # regr_id
+                                    datetime.now(),  # reg_date
+                                    "AUTO_SIGNAL",   # chgr_id
+                                    datetime.now()   # chg_date
+                                )
+                                
+                                insert1 = """INSERT INTO TR_SIGNAL_INFO (
+                                                prd_nm,
+                                                tr_tp,
+                                                tr_dtm,
+                                                tr_state,
+                                                tr_price,
+                                                tr_volume,
+                                                signal_name,
+                                                regr_id,
+                                                reg_date,
+                                                chgr_id,
+                                                chg_date
+                                            ) VALUES (
+                                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                            )"""
+                                cur2.execute(insert1, ins_param1)
+                                conn.commit()
+                                cur2.close()
+                                
+                                # Slack 메시지 전송
+                                send_slack_message("#매매신호", message)
+                            
+                            # 연결 종료
+                            cur1.close()
+                            conn.close()
+                            print("PostgreSQL 연결 종료")
+                                                      
                     # 매도 조건
                     elif volume_surge and trend == 'Downtrend':
                         # print(f"하락 추세 (저점 재이탈) 신호 발생 시간: {timestamp}")
@@ -207,8 +275,68 @@ def analyze_data():
                             message = f"{i} 매도 신호 발생 시간: {timestamp}, 가격: {close}, RSI: {rsi}, Trend: {trend}"
                             # print(message)
                             # client.chat_postMessage(channel='#가상화폐-자동매매',text= message)
-                            # Slack 메시지 전송
-                            send_slack_message("#매매신호", message)
+                            
+                            # PostgreSQL 데이터베이스에 연결
+                            conn = psycopg2.connect(
+                                dbname=DB_NAME,
+                                user=DB_USER,
+                                password=DB_PASSWORD,
+                                host=DB_HOST,
+                                port=DB_PORT
+                            )
+                            
+                            # 커서 생성
+                            cur1 = conn.cursor()
+                            
+                            tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
+                            
+                            # 매매신호정보 존재여부 조회
+                            cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'S' AND tr_dtm = '"+tr_dtm+"'")
+                            result_one = cur1.fetchone()
+                            print("result_one :", result_one)
+                            
+                            if result_one is None:
+                                cur2 = conn.cursor()
+                                ins_param1 = (
+                                    i,               # prd_nm
+                                    "S",             # tr_tp
+                                    tr_dtm,          # tr_dtm
+                                    "01",            # tr_state
+                                    close,           # tr_price
+                                    volume,          # tr_volume
+                                    "PivotTrend",    # signal_name
+                                    "AUTO_SIGNAL",   # regr_id
+                                    datetime.now(),  # reg_date
+                                    "AUTO_SIGNAL",   # chgr_id
+                                    datetime.now()   # chg_date
+                                )
+                                
+                                insert1 = """INSERT INTO TR_SIGNAL_INFO (
+                                                prd_nm,
+                                                tr_tp,
+                                                tr_dtm,
+                                                tr_state,
+                                                tr_price,
+                                                tr_volume,
+                                                signal_name,
+                                                regr_id,
+                                                reg_date,
+                                                chgr_id,
+                                                chg_date
+                                            ) VALUES (
+                                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                            )"""
+                                cur2.execute(insert1, ins_param1)
+                                conn.commit()
+                                cur2.close()
+                                
+                                # Slack 메시지 전송
+                                send_slack_message("#매매신호", message)
+                            
+                            # 연결 종료
+                            cur1.close()
+                            conn.close()
+                            print("PostgreSQL 연결 종료")
 
     except Exception as e:
         print("에러 발생:", e)
