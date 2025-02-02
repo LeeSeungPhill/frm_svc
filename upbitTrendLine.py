@@ -341,7 +341,7 @@ def analyze_data():
                         tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
                         
                         # 매매신호정보 존재여부 조회
-                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_dtm = '"+tr_dtm+"'")
+                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'S' AND tr_dtm = '"+tr_dtm+"'")
                         result_one = cur1.fetchone()
                         print("result_one :", result_one)
                         
