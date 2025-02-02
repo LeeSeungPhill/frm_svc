@@ -289,7 +289,7 @@ def analyze_data():
                                 "01",            # tr_state
                                 close,           # tr_price
                                 volume,          # tr_volume
-                                "PivotTrend",    # signal_name
+                                "TrendLine",    # signal_name
                                 "AUTO_SIGNAL",   # regr_id
                                 datetime.now(),  # reg_date
                                 "AUTO_SIGNAL",   # chgr_id
@@ -349,12 +349,12 @@ def analyze_data():
                             cur2 = conn.cursor()
                             ins_param1 = (
                                 i,               # prd_nm
-                                "B",             # tr_tp
+                                "S",             # tr_tp
                                 tr_dtm,          # tr_dtm
                                 "01",            # tr_state
                                 close,           # tr_price
                                 volume,          # tr_volume
-                                "PivotTrend",    # signal_name
+                                "TrendLine",    # signal_name
                                 "AUTO_SIGNAL",   # regr_id
                                 datetime.now(),  # reg_date
                                 "AUTO_SIGNAL",   # chgr_id
