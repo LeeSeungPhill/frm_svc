@@ -155,7 +155,7 @@ def send_slack_message(channel, message):
 
 def analyze_data():
     # 감시할 코인
-    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW"]
+    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW"]
     timeframe = "15m"  # 15분봉 데이터 사용
     end_time = datetime.now(pytz.timezone('Asia/Seoul'))
 
