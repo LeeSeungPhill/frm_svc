@@ -247,11 +247,12 @@ def analyze_data():
             # 커서 생성
             cur01 = conn.cursor()
             cur02 = conn.cursor()
-            query1 = "SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s"
+            query1 = "SELECT id, tr_dtm, tr_price FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s order by tr_dtm desc"
             cur01.execute(query1, (i, float(df_15m['close'].iloc[-1])))  
             result_01 = cur01.fetchall()
             for result in result_01:
-                message = f"{i} 거래량 급등 상승추세 매수 신호 발생 시간: {df_15m['timestamp'].iloc[-1].strftime('%Y%m%d%H%M%S')}, 가격: {df_15m['close'].iloc[-1]} 하락추세선 상단을 돌파한 고점을 돌파하였습니다."
+                formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 하락추세선 상단을 돌파한 고점 {result[2]} 을 돌파하였습니다."
                 print(message)
                 
                 # Slack 메시지 전송
@@ -274,11 +275,12 @@ def analyze_data():
                 conn.commit()
                 cur011.close()
 
-            query2 = "SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s"
+            query2 = "SELECT id, tr_dtm, tr_price FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s order by tr_dtm desc"
             cur02.execute(query2, (i, float(df_15m['close'].iloc[-1])))  
             result_02 = cur02.fetchall()
             for result in result_02:
-                message = f"{i} 거래량 급등 하락추세 매도 신호 발생 시간: {df_15m['timestamp'].iloc[-1].strftime('%Y%m%d%H%M%S')}, 가격: {df_15m['close'].iloc[-1]} 상승추세선 하단을 이탈한 저점을 이탈하였습니다."
+                formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 상승추세선 하단을 이탈한 저점 {result[2]} 을 이탈하였습니다."
                 print(message)
                 
                 # Slack 메시지 전송
