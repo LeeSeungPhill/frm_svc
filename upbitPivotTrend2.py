@@ -159,10 +159,19 @@ def determine_trends(data):
         else:
             trend.append('Sideways')
 
-    # 최근 96개구간(15분봉기준 24시간)의 최고가
-    high = data['high'].rolling(window=96, min_periods=1).max()
-    # 최근 96개구간(15분봉기준 24시간)의 최저가
-    low = data['low'].rolling(window=96, min_periods=1).min()
+    # 최근 96개구간(15분봉기준 24시간)의 고가의 95.8334% 분위(하위 1시간 제외 대상)
+    high = data['high'].rolling(window=96, min_periods=1).quantile(0.958334)
+    # q1_high = data['high'].rolling(window=96, min_periods=1).quantile(0.1)
+    # q2_high = data['high'].rolling(window=96, min_periods=1).quantile(0.9)
+    # IQR_high = (q2_high - q1_high) * 1.5
+    # high = q2_high + IQR_high
+    
+    # 최근 96개구간(15분봉기준 24시간)의 저가의 4.1666% 분위(하위 1시간 대상)
+    low = data['low'].rolling(window=96, min_periods=1).quantile(0.041666)
+    # q1_low = data['low'].rolling(window=96, min_periods=1).quantile(0.1)
+    # q2_low = data['low'].rolling(window=96, min_periods=1).quantile(0.9)
+    # IQR_low = (q2_low - q1_low) * 1.5
+    # low = q1_low - IQR_low
 
     # 피봇 포인트 계산
     pivot = (high + low + curr_close) / 3
@@ -211,7 +220,7 @@ def send_slack_message(channel, message):
 
 def analyze_data():
     # 감시할 코인
-    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW"]
+    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW"]
     timeframe_15m = "15m"  # 15분봉 데이터
     # timeframe_1d = "1d"    # 일봉 데이터
     timezone = pytz.timezone('Asia/Seoul')
@@ -254,6 +263,8 @@ def analyze_data():
             for _, row_15m in df_15m.iterrows():
                 timestamp = row_15m['timestamp']
                 close_m = row_15m['close']
+                h_close = row_15m['high']
+                l_close = row_15m['low']
                 trend = row_15m['Trend']
                 volume_surge = row_15m['Volume Surge']
                 ma_200 = row_15m['200MA']
@@ -269,7 +280,7 @@ def analyze_data():
                         #     rsi = calculate_rsi(df_1d)
                         #     message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}, RSI: {rsi}"
                         if close_m <= support1:
-                            message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}"
+                            message = f"{i} 피봇 과매도 매수 신호 발생 시간: {timestamp}, 가격: {h_close}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}"
                             print(message)
                             # PostgreSQL 데이터베이스에 연결
                             conn = psycopg2.connect(
@@ -297,9 +308,9 @@ def analyze_data():
                                     "B",             # tr_tp
                                     tr_dtm,          # tr_dtm
                                     "01",            # tr_state
-                                    close_m,           # tr_price
+                                    h_close,         # tr_price
                                     volume,          # tr_volume
-                                    "PivotTrend2",    # signal_name
+                                    "PivotTrend2",   # signal_name
                                     "AUTO_SIGNAL",   # regr_id
                                     datetime.now(),  # reg_date
                                     "AUTO_SIGNAL",   # chgr_id
@@ -338,7 +349,7 @@ def analyze_data():
                         #     rsi = calculate_rsi(df_1d)
                         #     message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}, RSI: {rsi}"
                         if close_m >= resistance1:
-                            message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {close_m}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}"
+                            message = f"{i} 피봇 과매수 매도 신호 발생 시간: {timestamp}, 가격: {l_close}, Support1: {support1}, Support2: {support2}, resistance1: {resistance1}, resistance2: {resistance2}, ma_200: {ma_200}"
                             print(message)
                             # PostgreSQL 데이터베이스에 연결
                             conn = psycopg2.connect(
@@ -366,9 +377,9 @@ def analyze_data():
                                     "S",             # tr_tp
                                     tr_dtm,          # tr_dtm
                                     "01",            # tr_state
-                                    close_m,           # tr_price
+                                    l_close,         # tr_price
                                     volume,          # tr_volume
-                                    "PivotTrend2",    # signal_name
+                                    "PivotTrend2",   # signal_name
                                     "AUTO_SIGNAL",   # regr_id
                                     datetime.now(),  # reg_date
                                     "AUTO_SIGNAL",   # chgr_id

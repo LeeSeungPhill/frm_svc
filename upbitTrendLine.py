@@ -208,7 +208,7 @@ def send_slack_message(channel, message):
 
 def analyze_data():
     # 감시할 코인
-    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW"]
+    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW"]
     timeframe_1d = "1d"    # 일봉 데이터
     timeframe_15m = "15m"  # 15분봉 데이터
     timezone = pytz.timezone('Asia/Seoul')
@@ -232,7 +232,74 @@ def analyze_data():
             df_15m = determine_trends(df_15m)
             df_15m = calculate_indicators(df_15m)
 
-            trend_type='short'
+            trend_type='mid'
+            
+            # PostgreSQL 데이터베이스에 연결
+            conn = psycopg2.connect(
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                host=DB_HOST,
+                port=DB_PORT
+            )
+
+            # 현재가 기준 매매신호정보 돌파 및 이탈여부 조회
+            # 커서 생성
+            cur01 = conn.cursor()
+            cur02 = conn.cursor()
+            query1 = "SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s"
+            cur01.execute(query1, (i, float(df_15m['close'].iloc[-1])))  
+            result_01 = cur01.fetchall()
+            for result in result_01:
+                message = f"{i} 거래량 급등 상승추세 매수 신호 발생 시간: {df_15m['timestamp'].iloc[-1].strftime('%Y%m%d%H%M%S')}, 가격: {df_15m['close'].iloc[-1]} 하락추세선 상단을 돌파한 고점을 돌파하였습니다."
+                print(message)
+                
+                # Slack 메시지 전송
+                send_slack_message("#매매신호", message)
+                
+                cur011 = conn.cursor()
+                upd_param1 = (
+                    "AUTO_SIGNAL",   # chgr_id
+                    datetime.now(),  # chg_date
+                    result[0],       # id
+                )
+                
+                update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                tr_state = '02',
+                                chgr_id = %s,
+                                chg_date = %s
+                            WHERE id = %s
+                        """
+                cur011.execute(update1, upd_param1)
+                conn.commit()
+                cur011.close()
+
+            query2 = "SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s"
+            cur02.execute(query2, (i, float(df_15m['close'].iloc[-1])))  
+            result_02 = cur02.fetchall()
+            for result in result_02:
+                message = f"{i} 거래량 급등 하락추세 매도 신호 발생 시간: {df_15m['timestamp'].iloc[-1].strftime('%Y%m%d%H%M%S')}, 가격: {df_15m['close'].iloc[-1]} 상승추세선 하단을 이탈한 저점을 이탈하였습니다."
+                print(message)
+                
+                # Slack 메시지 전송
+                send_slack_message("#매매신호", message)
+                
+                cur011 = conn.cursor()
+                upd_param1 = (
+                    "AUTO_SIGNAL",   # chgr_id
+                    datetime.now(),  # chg_date
+                    result[0],       # id
+                )
+                
+                update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                tr_state = '02',
+                                chgr_id = %s,
+                                chg_date = %s
+                            WHERE id = %s
+                        """
+                cur011.execute(update1, upd_param1)
+                conn.commit()
+                cur011.close()
 
             # 결과 출력
             print(f"{i} 분석 종료 시간: {end_time}")
@@ -242,6 +309,8 @@ def analyze_data():
             for _, row_15m in df_15m.iterrows():
                 timestamp = row_15m['timestamp']
                 close = row_15m['close']
+                h_close = row_15m['high']
+                l_close = row_15m['low']
                 trend = row_15m['Trend']
                 volume_surge = row_15m['Volume Surge']
                 volume = row_15m['volume']
@@ -259,16 +328,6 @@ def analyze_data():
 
                     # 거래량 급등(거래량이 20일 거래량 평균보다 150% 이상) 인 경우 
                     if result == "Turn Up" and volume_surge and trend == "Uptrend":
-                        message = f"{i} 거래량 급등 상승추세 매수 신호 발생 시간: {timestamp}, 가격: {close}, Trend: {trend}, {trend_type} 하락추세선 상단을 돌파하였습니다."
-                        print(message)
-                        # PostgreSQL 데이터베이스에 연결
-                        conn = psycopg2.connect(
-                            dbname=DB_NAME,
-                            user=DB_USER,
-                            password=DB_PASSWORD,
-                            host=DB_HOST,
-                            port=DB_PORT
-                        )
                         
                         # 커서 생성
                         cur1 = conn.cursor()
@@ -278,7 +337,6 @@ def analyze_data():
                         # 매매신호정보 존재여부 조회
                         cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_dtm = '"+tr_dtm+"'")
                         result_one = cur1.fetchone()
-                        print("result_one :", result_one)
                         
                         if result_one is None:
                             cur2 = conn.cursor()
@@ -287,9 +345,9 @@ def analyze_data():
                                 "B",             # tr_tp
                                 tr_dtm,          # tr_dtm
                                 "01",            # tr_state
-                                close,           # tr_price
+                                h_close,         # tr_price
                                 volume,          # tr_volume
-                                "TrendLine",    # signal_name
+                                "TrendLine-"+trend_type,    # signal_name
                                 "AUTO_SIGNAL",   # regr_id
                                 datetime.now(),  # reg_date
                                 "AUTO_SIGNAL",   # chgr_id
@@ -314,26 +372,9 @@ def analyze_data():
                             cur2.execute(insert1, ins_param1)
                             conn.commit()
                             cur2.close()
-                            
-                            # Slack 메시지 전송
-                            send_slack_message("#매매신호", message)
-                        
-                        # 연결 종료
-                        cur1.close()
-                        conn.close()
-                        print("PostgreSQL 연결 종료")
+                        cur1.close()    
                         
                     elif result == "Turn Down" and volume_surge and trend == "Downtrend":
-                        message = f"{i} 거래량 급등 하락추세 매도 신호 발생 시간: {timestamp}, 가격: {close}, Trend: {trend}, {trend_type} 상승추세선 하단을 이탈하였습니다."
-                        print(message)
-                        # PostgreSQL 데이터베이스에 연결
-                        conn = psycopg2.connect(
-                            dbname=DB_NAME,
-                            user=DB_USER,
-                            password=DB_PASSWORD,
-                            host=DB_HOST,
-                            port=DB_PORT
-                        )
                         
                         # 커서 생성
                         cur1 = conn.cursor()
@@ -343,7 +384,6 @@ def analyze_data():
                         # 매매신호정보 존재여부 조회
                         cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'S' AND tr_dtm = '"+tr_dtm+"'")
                         result_one = cur1.fetchone()
-                        print("result_one :", result_one)
                         
                         if result_one is None:
                             cur2 = conn.cursor()
@@ -352,9 +392,9 @@ def analyze_data():
                                 "S",             # tr_tp
                                 tr_dtm,          # tr_dtm
                                 "01",            # tr_state
-                                close,           # tr_price
+                                l_close,         # tr_price
                                 volume,          # tr_volume
-                                "TrendLine",    # signal_name
+                                "TrendLine-"+trend_type,    # signal_name
                                 "AUTO_SIGNAL",   # regr_id
                                 datetime.now(),  # reg_date
                                 "AUTO_SIGNAL",   # chgr_id
@@ -379,14 +419,12 @@ def analyze_data():
                             cur2.execute(insert1, ins_param1)
                             conn.commit()
                             cur2.close()
-                            
-                            # Slack 메시지 전송
-                            send_slack_message("#매매신호", message)
+                        cur1.close()    
                         
-                        # 연결 종료
-                        cur1.close()
-                        conn.close()
-                        print("PostgreSQL 연결 종료")
+            # 연결 종료
+            cur01.close()
+            cur02.close()
+            conn.close()
 
     except Exception as e:
         print("에러 발생:", e)
