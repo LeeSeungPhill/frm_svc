@@ -243,65 +243,72 @@ def analyze_data():
                 port=DB_PORT
             )
 
-            # 현재가 기준 매매신호정보 돌파 및 이탈여부 조회
             # 커서 생성
             cur01 = conn.cursor()
             cur02 = conn.cursor()
-            query1 = "SELECT id, tr_dtm, tr_price FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s order by tr_dtm desc"
+            # 현재가 기준 매매신호정보 돌파가보다 큰 경우 조회
+            query1 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s order by tr_dtm desc"
             cur01.execute(query1, (i, float(df_15m['close'].iloc[-1])))  
             result_01 = cur01.fetchall()
             for result in result_01:
-                formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 하락추세선 상단을 돌파한 고점 {result[2]} 을 돌파하였습니다."
-                print(message)
                 
-                # Slack 메시지 전송
-                send_slack_message("#매매신호", message)
-                
-                cur011 = conn.cursor()
-                upd_param1 = (
-                    "AUTO_SIGNAL",   # chgr_id
-                    datetime.now(),  # chg_date
-                    result[0],       # id
-                )
-                
-                update1 = """UPDATE TR_SIGNAL_INFO SET 
-                                tr_state = '02',
-                                chgr_id = %s,
-                                chg_date = %s
-                            WHERE id = %s
-                        """
-                cur011.execute(update1, upd_param1)
-                conn.commit()
-                cur011.close()
+                # 매매신호정보의 거래량보다 현재 거래량이 더 큰 경우
+                if float(df_15m['volume'].iloc[-1]) > result[3]:
+                    formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                    message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 하락추세선 상단을 돌파한 고점 {result[2]} 을 돌파하였습니다."
+                    print(message)
+                    
+                    # Slack 메시지 전송
+                    send_slack_message("#매매신호", message)
+                    
+                    cur011 = conn.cursor()
+                    upd_param1 = (
+                        "AUTO_SIGNAL",   # chgr_id
+                        datetime.now(),  # chg_date
+                        result[0],       # id
+                    )
+                    
+                    update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                    tr_state = '02',
+                                    chgr_id = %s,
+                                    chg_date = %s
+                                WHERE id = %s
+                            """
+                    cur011.execute(update1, upd_param1)
+                    conn.commit()
+                    cur011.close()
 
-            query2 = "SELECT id, tr_dtm, tr_price FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s order by tr_dtm desc"
+            # 현재가 기준 매매신호정보 이탈가보다 작은 경우 조회
+            query2 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s order by tr_dtm desc"
             cur02.execute(query2, (i, float(df_15m['close'].iloc[-1])))  
             result_02 = cur02.fetchall()
             for result in result_02:
-                formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 상승추세선 하단을 이탈한 저점 {result[2]} 을 이탈하였습니다."
-                print(message)
                 
-                # Slack 메시지 전송
-                send_slack_message("#매매신호", message)
-                
-                cur011 = conn.cursor()
-                upd_param1 = (
-                    "AUTO_SIGNAL",   # chgr_id
-                    datetime.now(),  # chg_date
-                    result[0],       # id
-                )
-                
-                update1 = """UPDATE TR_SIGNAL_INFO SET 
-                                tr_state = '02',
-                                chgr_id = %s,
-                                chg_date = %s
-                            WHERE id = %s
-                        """
-                cur011.execute(update1, upd_param1)
-                conn.commit()
-                cur011.close()
+                # 매매신호정보의 거래량보다 현재 거래량이 더 큰 경우
+                if float(df_15m['volume'].iloc[-1]) > result[3]:
+                    formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                    message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 상승추세선 하단을 이탈한 저점 {result[2]} 을 이탈하였습니다."
+                    print(message)
+                    
+                    # Slack 메시지 전송
+                    send_slack_message("#매매신호", message)
+                    
+                    cur011 = conn.cursor()
+                    upd_param1 = (
+                        "AUTO_SIGNAL",   # chgr_id
+                        datetime.now(),  # chg_date
+                        result[0],       # id
+                    )
+                    
+                    update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                    tr_state = '02',
+                                    chgr_id = %s,
+                                    chg_date = %s
+                                WHERE id = %s
+                            """
+                    cur011.execute(update1, upd_param1)
+                    conn.commit()
+                    cur011.close()
 
             # 결과 출력
             print(f"{i} 분석 종료 시간: {end_time}")
@@ -337,7 +344,7 @@ def analyze_data():
                         tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
                         
                         # 매매신호정보 존재여부 조회
-                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_dtm = '"+tr_dtm+"'")
+                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_dtm = '"+tr_dtm+"'")
                         result_one = cur1.fetchone()
                         
                         if result_one is None:
@@ -384,7 +391,7 @@ def analyze_data():
                         tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
                         
                         # 매매신호정보 존재여부 조회
-                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = '"+i+"' AND tr_tp = 'S' AND tr_dtm = '"+tr_dtm+"'")
+                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'S' AND tr_dtm = '"+tr_dtm+"'")
                         result_one = cur1.fetchone()
                         
                         if result_one is None:
