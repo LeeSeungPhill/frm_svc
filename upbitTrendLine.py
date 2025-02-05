@@ -205,6 +205,20 @@ def send_slack_message(channel, message):
         #     print("중복 메시지, 전송 생략:", message)
     except SlackApiError as e:
         print(f"Slack 메시지 전송 실패: {e.response['error']}")
+        
+# 데이터 가져오기 재시도 함수(재시도 횟수 : 3회)
+def fetch_ohlcv_with_retry(exchange, symbol, timeframe_15m, limit=200, max_retries=3):
+    retries = 0
+    while retries < max_retries:
+        try:
+            return exchange.fetch_ohlcv(symbol, timeframe=timeframe_15m, limit=limit)
+        except Exception as e:
+            print(f"Error fetching OHLCV data: {e}")
+            retries += 1
+            time.sleep(1)  # 재시도 전 1초 대기
+    
+    print("Max retries reached. Failed to fetch OHLCV data.")
+    return None  # 실패 시 None 반환        
 
 def analyze_data():
     # 감시할 코인
@@ -218,12 +232,12 @@ def analyze_data():
 
         for i in params:
             # 일봉 데이터 가져오기
-            ohlcv_1d = exchange.fetch_ohlcv(i, timeframe=timeframe_1d, limit=200)
-            df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+            # ohlcv_1d = fetch_ohlcv_with_retry(exchange, i, timeframe_1d)
+            # df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            # df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
             # 15분봉 데이터 가져오기
-            ohlcv_15m = exchange.fetch_ohlcv(i, timeframe=timeframe_15m, limit=200)
+            ohlcv_15m = fetch_ohlcv_with_retry(exchange, i, timeframe_15m)
             df_15m = pd.DataFrame(ohlcv_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
@@ -246,69 +260,120 @@ def analyze_data():
             # 커서 생성
             cur01 = conn.cursor()
             cur02 = conn.cursor()
+            
+            # 신호 발생 상태 : 초기 "01"
+            signal_buy = "01"
+            signal_sell = "01"
+            
             # 현재가 기준 매매신호정보 돌파가보다 큰 경우 조회
             query1 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s order by tr_dtm desc"
             cur01.execute(query1, (i, float(df_15m['close'].iloc[-1])))  
             result_01 = cur01.fetchall()
-            for result in result_01:
-                
-                # 매매신호정보의 거래량보다 현재 거래량이 더 큰 경우
-                if float(df_15m['volume'].iloc[-1]) > result[3]:
-                    formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                    message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 하락추세선 상단을 돌파한 고점 {result[2]} 을 돌파하였습니다."
-                    print(message)
-                    
-                    # Slack 메시지 전송
-                    send_slack_message("#매매신호", message)
-                    
-                    cur011 = conn.cursor()
-                    upd_param1 = (
-                        "AUTO_SIGNAL",   # chgr_id
-                        datetime.now(),  # chg_date
-                        result[0],       # id
-                    )
-                    
-                    update1 = """UPDATE TR_SIGNAL_INFO SET 
-                                    tr_state = '02',
-                                    chgr_id = %s,
-                                    chg_date = %s
-                                WHERE id = %s
-                            """
-                    cur011.execute(update1, upd_param1)
-                    conn.commit()
-                    cur011.close()
+            
+            if result_01:
+                for idx, result in enumerate(result_01):             
+                    # 매매신호정보 첫번째 대상의 거래량보다 현재 거래량이 더 큰 경우
+                    if idx == 0 and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                        formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                        message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 하락추세선 상단을 돌파한 고점 {result[2]} 을 돌파하였습니다."
+                        print(message)
+                        
+                        # 신호 발생 상태 : 변경 "02"
+                        signal_buy = "02"
+                        
+                        # Slack 메시지 전송
+                        send_slack_message("#매매신호", message)
+                        
+                        cur011 = conn.cursor()
+                        upd_param1 = (
+                            "AUTO_SIGNAL",   # chgr_id
+                            datetime.now(),  # chg_date
+                            result[0],       # id
+                        )
+                        
+                        update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                        tr_state = '02',
+                                        chgr_id = %s,
+                                        chg_date = %s
+                                    WHERE id = %s
+                                """
+                        cur011.execute(update1, upd_param1)
+                        conn.commit()
+                        cur011.close()
+                        
+                    elif signal_buy == "02":    # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
+                        
+                        cur011 = conn.cursor()
+                        upd_param1 = (
+                            "AUTO_SIGNAL",   # chgr_id
+                            datetime.now(),  # chg_date
+                            result[0],       # id
+                        )
+                        
+                        update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                        tr_state = '11',
+                                        chgr_id = %s,
+                                        chg_date = %s
+                                    WHERE id = %s
+                                """
+                        cur011.execute(update1, upd_param1)
+                        conn.commit()
+                        cur011.close()                      
 
             # 현재가 기준 매매신호정보 이탈가보다 작은 경우 조회
             query2 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s order by tr_dtm desc"
             cur02.execute(query2, (i, float(df_15m['close'].iloc[-1])))  
             result_02 = cur02.fetchall()
-            for result in result_02:
-                
-                # 매매신호정보의 거래량보다 현재 거래량이 더 큰 경우
-                if float(df_15m['volume'].iloc[-1]) > result[3]:
-                    formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                    message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 상승추세선 하단을 이탈한 저점 {result[2]} 을 이탈하였습니다."
-                    print(message)
-                    
-                    # Slack 메시지 전송
-                    send_slack_message("#매매신호", message)
-                    
-                    cur011 = conn.cursor()
-                    upd_param1 = (
-                        "AUTO_SIGNAL",   # chgr_id
-                        datetime.now(),  # chg_date
-                        result[0],       # id
-                    )
-                    
-                    update1 = """UPDATE TR_SIGNAL_INFO SET 
-                                    tr_state = '02',
-                                    chgr_id = %s,
-                                    chg_date = %s
-                                WHERE id = %s
-                            """
-                    cur011.execute(update1, upd_param1)
-                    conn.commit()
-                    cur011.close()
+            
+            if result_02:
+                for idx, result in enumerate(result_02):    
+                    # 매매신호정보 첫번째 대상의 거래량보다 현재 거래량이 더 큰 경우
+                    if idx == 0 and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                        formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                        message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 상승추세선 하단을 이탈한 저점 {result[2]} 을 이탈하였습니다."
+                        print(message)
+                        
+                        # 신호 발생 상태 : 변경 "02"
+                        signal_sell = "02"
+                        
+                        # Slack 메시지 전송
+                        send_slack_message("#매매신호", message)
+                        
+                        cur011 = conn.cursor()
+                        upd_param1 = (
+                            "AUTO_SIGNAL",   # chgr_id
+                            datetime.now(),  # chg_date
+                            result[0],       # id
+                        )
+                        
+                        update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                        tr_state = '02',
+                                        chgr_id = %s,
+                                        chg_date = %s
+                                    WHERE id = %s
+                                """
+                        cur011.execute(update1, upd_param1)
+                        conn.commit()
+                        cur011.close()
+                        
+                    elif signal_sell == "02":   # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
+                        
+                        cur011 = conn.cursor()
+                        upd_param1 = (
+                            "AUTO_SIGNAL",   # chgr_id
+                            datetime.now(),  # chg_date
+                            result[0],       # id
+                        )
+                        
+                        update1 = """UPDATE TR_SIGNAL_INFO SET 
+                                        tr_state = '11',
+                                        chgr_id = %s,
+                                        chg_date = %s
+                                    WHERE id = %s
+                                """
+                        cur011.execute(update1, upd_param1)
+                        conn.commit()
+                        cur011.close()
 
             # 결과 출력
             print(f"{i} 분석 종료 시간: {end_time}")
