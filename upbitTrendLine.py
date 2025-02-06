@@ -265,17 +265,17 @@ def analyze_data():
             signal_buy = "01"
             signal_sell = "01"
             
-            # 현재가 기준 매매신호정보 돌파가보다 큰 경우 조회
-            query1 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_price <= %s order by tr_dtm desc"
-            cur01.execute(query1, (i, float(df_15m['close'].iloc[-1])))  
+            # 매매신호정보 조회
+            query1 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' order by tr_dtm desc"
+            cur01.execute(query1, (i, ))  
             result_01 = cur01.fetchall()
             
             if result_01:
                 for idx, result in enumerate(result_01):             
-                    # 매매신호정보 첫번째 대상의 거래량보다 현재 거래량이 더 큰 경우
-                    if idx == 0 and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                    # 매매신호정보 첫번째 대상의 돌파가보다 현재가가 크고, 거래량보다 현재 거래량이 더 큰 경우
+                    if idx == 0 and float(df_15m['close'].iloc[-1]) >= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 하락추세선 상단을 돌파한 고점 {result[2]} 을 돌파하였습니다."
+                        message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
                         
                         # 신호 발생 상태 : 변경 "02"
@@ -320,17 +320,17 @@ def analyze_data():
                         conn.commit()
                         cur011.close()                      
 
-            # 현재가 기준 매매신호정보 이탈가보다 작은 경우 조회
-            query2 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_price >= %s order by tr_dtm desc"
-            cur02.execute(query2, (i, float(df_15m['close'].iloc[-1])))  
+            # 매매신호정보 조회
+            query2 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' order by tr_dtm desc"
+            cur02.execute(query2, (i, ))  
             result_02 = cur02.fetchall()
             
             if result_02:
                 for idx, result in enumerate(result_02):    
-                    # 매매신호정보 첫번째 대상의 거래량보다 현재 거래량이 더 큰 경우
-                    if idx == 0 and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                    # 매매신호정보 첫번째 대상의 이탈가보다 현재가가 작고, 거래량보다 현재 거래량이 더 큰 경우
+                    if idx == 0 and float(df_15m['close'].iloc[-1]) <= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 상승추세선 하단을 이탈한 저점 {result[2]} 을 이탈하였습니다."
+                        message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
                         
                         # 신호 발생 상태 : 변경 "02"
