@@ -104,13 +104,22 @@ def check_trend(df, current_date, current_price, current_volume, prev_volume, tr
     #     return result
     if current_price > predicted_high:
         result = "Turn Up"
-        return result
     elif current_price < predicted_low:
         result = "Turn Down"
-        return result
     else:
         result = "Normal"
-        return result    
+    
+    return {
+        "result": result,
+        "predicted_high": predicted_high,
+        "predicted_low": predicted_low,
+        "high_slope": high_slope,
+        "high_intercept": high_intercept,
+        "low_slope": low_slope,
+        "low_intercept": low_intercept,
+        "high_prices": max(high_prices) if high_prices else None,
+        "low_prices": min(low_prices) if low_prices else None
+    }
 
 # 고점과 저점 계산 함수
 def calculate_peaks_and_troughs(data):
@@ -220,7 +229,7 @@ def fetch_ohlcv_with_retry(exchange, symbol, timeframe_15m, limit=200, max_retri
     print("Max retries reached. Failed to fetch OHLCV data.")
     return None  # 실패 시 None 반환        
 
-def analyze_data():
+def analyze_data(trend_type):
     # 감시할 코인
     params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW"]
     timeframe_1d = "1d"    # 일봉 데이터
@@ -245,8 +254,6 @@ def analyze_data():
             df_15m = calculate_peaks_and_troughs(df_15m)
             df_15m = determine_trends(df_15m)
             df_15m = calculate_indicators(df_15m)
-
-            trend_type='mid'
             
             # PostgreSQL 데이터베이스에 연결
             conn = psycopg2.connect(
@@ -282,7 +289,7 @@ def analyze_data():
                         signal_buy = "02"
                         
                         # Slack 메시지 전송
-                        send_slack_message("#매매신호", message)
+                        # send_slack_message("#매매신호", message)
                         
                         cur011 = conn.cursor()
                         upd_param1 = (
@@ -337,7 +344,7 @@ def analyze_data():
                         signal_sell = "02"
                         
                         # Slack 메시지 전송
-                        send_slack_message("#매매신호", message)
+                        # send_slack_message("#매매신호", message)
                         
                         cur011 = conn.cursor()
                         upd_param1 = (
@@ -396,12 +403,12 @@ def analyze_data():
                 prev_volume = df_15m.iloc[-2]['volume']
 
                 # result = check_trend(df_1d, current_date, current_price, current_volume, prev_volume, trend_type)
-                result = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
+                trend_info = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
 
                 if timestamp >= one_hour_ago:
 
                     # 거래량 급등(거래량이 20일 거래량 평균보다 150% 이상) 인 경우 
-                    if result == "Turn Up" and volume_surge and trend == "Uptrend":
+                    if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
                         
                         # 커서 생성
                         cur1 = conn.cursor()
@@ -425,7 +432,9 @@ def analyze_data():
                                 "AUTO_SIGNAL",   # regr_id
                                 datetime.now(),  # reg_date
                                 "AUTO_SIGNAL",   # chgr_id
-                                datetime.now()   # chg_date
+                                datetime.now(),  # chg_date
+                                trend_info["low_prices"],
+                                trend_info["high_prices"]
                             )
                             
                             insert1 = """INSERT INTO TR_SIGNAL_INFO (
@@ -439,16 +448,18 @@ def analyze_data():
                                             regr_id,
                                             reg_date,
                                             chgr_id,
-                                            chg_date
+                                            chg_date,
+                                            support_price,
+                                            regist_price
                                         ) VALUES (
-                                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                                         )"""
                             cur2.execute(insert1, ins_param1)
                             conn.commit()
                             cur2.close()
                         cur1.close()    
                         
-                    elif result == "Turn Down" and volume_surge and trend == "Downtrend":
+                    elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
                         
                         # 커서 생성
                         cur1 = conn.cursor()
@@ -472,7 +483,9 @@ def analyze_data():
                                 "AUTO_SIGNAL",   # regr_id
                                 datetime.now(),  # reg_date
                                 "AUTO_SIGNAL",   # chgr_id
-                                datetime.now()   # chg_date
+                                datetime.now(),  # chg_date
+                                trend_info["low_prices"],
+                                trend_info["high_prices"]
                             )
                             
                             insert1 = """INSERT INTO TR_SIGNAL_INFO (
@@ -486,9 +499,11 @@ def analyze_data():
                                             regr_id,
                                             reg_date,
                                             chgr_id,
-                                            chg_date
+                                            chg_date,
+                                            support_price,
+                                            regist_price
                                         ) VALUES (
-                                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                                         )"""
                             cur2.execute(insert1, ins_param1)
                             conn.commit()
@@ -504,12 +519,12 @@ def analyze_data():
         print("에러 발생:", e)
 
 # 15분마다 실행 설정
-schedule.every(15).minutes.do(analyze_data)        
+schedule.every(15).minutes.do(analyze_data, 'mid')     
 
 # 실행
 if __name__ == "__main__":
     print("15분마다 분석 작업을 실행합니다...")
-    analyze_data()  # 첫 실행
+    analyze_data('mid')  # 첫 실행
     while True:
         schedule.run_pending()
         time.sleep(1)
