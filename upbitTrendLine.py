@@ -252,7 +252,7 @@ def analyze_data(trend_type):
 
             # 고점/저점 계산, 추세 판단, 이동평균선 및 거래량 급등 계산
             df_15m = calculate_peaks_and_troughs(df_15m)
-            df_15m = determine_trends(df_15m)
+            # df_15m = determine_trends(df_15m)
             df_15m = calculate_indicators(df_15m)
             
             # PostgreSQL 데이터베이스에 연결
@@ -392,7 +392,7 @@ def analyze_data(trend_type):
                 close = row_15m['close']
                 h_close = row_15m['high']
                 l_close = row_15m['low']
-                trend = row_15m['Trend']
+                # trend = row_15m['Trend']
                 volume_surge = row_15m['Volume Surge']
                 volume = row_15m['volume']
                 ma_200 = row_15m['200MA']
@@ -408,7 +408,8 @@ def analyze_data(trend_type):
                 if timestamp >= one_hour_ago:
 
                     # 거래량 급등(거래량이 20일 거래량 평균보다 150% 이상) 인 경우 
-                    if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
+                    # if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
+                    if trend_info['result'] == "Turn Up" and volume_surge:
                         
                         # 커서 생성
                         cur1 = conn.cursor()
@@ -421,45 +422,117 @@ def analyze_data(trend_type):
                         
                         if result_one is None:
                             cur2 = conn.cursor()
-                            ins_param1 = (
-                                i,               # prd_nm
-                                "B",             # tr_tp
-                                tr_dtm,          # tr_dtm
-                                "01",            # tr_state
-                                h_close,         # tr_price
-                                volume,          # tr_volume
-                                "TrendLine-"+trend_type,    # signal_name
-                                "AUTO_SIGNAL",   # regr_id
-                                datetime.now(),  # reg_date
-                                "AUTO_SIGNAL",   # chgr_id
-                                datetime.now(),  # chg_date
-                                trend_info["low_prices"],
-                                trend_info["high_prices"]
-                            )
-                            
-                            insert1 = """INSERT INTO TR_SIGNAL_INFO (
-                                            prd_nm,
-                                            tr_tp,
-                                            tr_dtm,
-                                            tr_state,
-                                            tr_price,
-                                            tr_volume,
-                                            signal_name,
-                                            regr_id,
-                                            reg_date,
-                                            chgr_id,
-                                            chg_date,
-                                            support_price,
-                                            regist_price
-                                        ) VALUES (
-                                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                        )"""
-                            cur2.execute(insert1, ins_param1)
-                            conn.commit()
-                            cur2.close()
+
+                            # 매매신호정보 '02' 대상 존재여부 조회
+                            cur2.execute("SELECT id, support_price FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_state = '02'")
+                            result_two = cur2.fetchall()
+
+                            if result_two is None:
+                                cur3 = conn.cursor()
+                                ins_param1 = (
+                                    i,               # prd_nm
+                                    "B",             # tr_tp
+                                    tr_dtm,          # tr_dtm
+                                    "01",            # tr_state
+                                    h_close,         # tr_price
+                                    volume,          # tr_volume
+                                    "TrendLine-"+trend_type,    # signal_name
+                                    "AUTO_SIGNAL",   # regr_id
+                                    datetime.now(),  # reg_date
+                                    "AUTO_SIGNAL",   # chgr_id
+                                    datetime.now(),  # chg_date
+                                    trend_info["low_prices"],
+                                    trend_info["high_prices"]
+                                )
+                                
+                                insert1 = """INSERT INTO TR_SIGNAL_INFO (
+                                                prd_nm,
+                                                tr_tp,
+                                                tr_dtm,
+                                                tr_state,
+                                                tr_price,
+                                                tr_volume,
+                                                signal_name,
+                                                regr_id,
+                                                reg_date,
+                                                chgr_id,
+                                                chg_date,
+                                                support_price,
+                                                regist_price
+                                            ) VALUES (
+                                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                            )"""
+                                cur3.execute(insert1, ins_param1)
+                                conn.commit()
+                                cur3.close()
+
+                            else:
+
+                                for idx, result in enumerate(result_two): 
+
+                                    # 지지가보다 저가가 작은 대상
+                                    if result[1] > trend_info["low_prices"]:
+
+                                        cur3 = conn.cursor()
+                                        ins_param1 = (
+                                            i,               # prd_nm
+                                            "B",             # tr_tp
+                                            tr_dtm,          # tr_dtm
+                                            "01",            # tr_state
+                                            h_close,         # tr_price
+                                            volume,          # tr_volume
+                                            "TrendLine-"+trend_type,    # signal_name
+                                            "AUTO_SIGNAL",   # regr_id
+                                            datetime.now(),  # reg_date
+                                            "AUTO_SIGNAL",   # chgr_id
+                                            datetime.now(),  # chg_date
+                                            trend_info["low_prices"],
+                                            trend_info["high_prices"]
+                                        )
+                                        
+                                        insert1 = """INSERT INTO TR_SIGNAL_INFO (
+                                                        prd_nm,
+                                                        tr_tp,
+                                                        tr_dtm,
+                                                        tr_state,
+                                                        tr_price,
+                                                        tr_volume,
+                                                        signal_name,
+                                                        regr_id,
+                                                        reg_date,
+                                                        chgr_id,
+                                                        chg_date,
+                                                        support_price,
+                                                        regist_price
+                                                    ) VALUES (
+                                                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                                    )"""
+                                        cur3.execute(insert1, ins_param1)
+                                        conn.commit()
+                                        cur3.close()
+
+                                        cur4 = conn.cursor()
+                                        upd_param2 = (
+                                            "AUTO_SIGNAL",   # chgr_id
+                                            datetime.now(),  # chg_date
+                                            result[0],       # id
+                                        )
+                                        
+                                        update2 = """UPDATE TR_SIGNAL_INFO SET 
+                                                        tr_state = '021',
+                                                        chgr_id = %s,
+                                                        chg_date = %s
+                                                    WHERE id = %s
+                                                """
+                                        cur4.execute(update2, upd_param2)
+                                        conn.commit()
+                                        cur4.close()
+
+                            cur2.close()    
                         cur1.close()    
                         
-                    elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
+                    # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
+                    elif trend_info['result'] == "Turn Down" and volume_surge:
                         
                         # 커서 생성
                         cur1 = conn.cursor()
@@ -472,41 +545,49 @@ def analyze_data(trend_type):
                         
                         if result_one is None:
                             cur2 = conn.cursor()
-                            ins_param1 = (
-                                i,               # prd_nm
-                                "S",             # tr_tp
-                                tr_dtm,          # tr_dtm
-                                "01",            # tr_state
-                                l_close,         # tr_price
-                                volume,          # tr_volume
-                                "TrendLine-"+trend_type,    # signal_name
-                                "AUTO_SIGNAL",   # regr_id
-                                datetime.now(),  # reg_date
-                                "AUTO_SIGNAL",   # chgr_id
-                                datetime.now(),  # chg_date
-                                trend_info["low_prices"],
-                                trend_info["high_prices"]
-                            )
-                            
-                            insert1 = """INSERT INTO TR_SIGNAL_INFO (
-                                            prd_nm,
-                                            tr_tp,
-                                            tr_dtm,
-                                            tr_state,
-                                            tr_price,
-                                            tr_volume,
-                                            signal_name,
-                                            regr_id,
-                                            reg_date,
-                                            chgr_id,
-                                            chg_date,
-                                            support_price,
-                                            regist_price
-                                        ) VALUES (
-                                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                        )"""
-                            cur2.execute(insert1, ins_param1)
-                            conn.commit()
+                            # 매매신호정보 매수의 '02' 대상 존재여부 조회
+                            cur2.execute("SELECT id, regist_price FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_state = '02'")
+                            result_two = cur2.fetchall()
+
+                            if result_two:
+                                cur3 = conn.cursor()
+                                ins_param1 = (
+                                    i,               # prd_nm
+                                    "S",             # tr_tp
+                                    tr_dtm,          # tr_dtm
+                                    "01",            # tr_state
+                                    h_close,         # tr_price
+                                    volume,          # tr_volume
+                                    "TrendLine-"+trend_type,    # signal_name
+                                    "AUTO_SIGNAL",   # regr_id
+                                    datetime.now(),  # reg_date
+                                    "AUTO_SIGNAL",   # chgr_id
+                                    datetime.now(),  # chg_date
+                                    trend_info["low_prices"],
+                                    trend_info["high_prices"]
+                                )
+                                
+                                insert1 = """INSERT INTO TR_SIGNAL_INFO (
+                                                prd_nm,
+                                                tr_tp,
+                                                tr_dtm,
+                                                tr_state,
+                                                tr_price,
+                                                tr_volume,
+                                                signal_name,
+                                                regr_id,
+                                                reg_date,
+                                                chgr_id,
+                                                chg_date,
+                                                support_price,
+                                                regist_price
+                                            ) VALUES (
+                                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                            )"""
+                                cur3.execute(insert1, ins_param1)
+                                conn.commit()
+                                cur3.close()
+
                             cur2.close()
                         cur1.close()    
                         
