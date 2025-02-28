@@ -458,7 +458,7 @@ def analyze_data(trend_type):
                                 conn.commit()
 
                             # '02' 상태의 매매신호정보가 있고, 지지 가격보다 저가가 작은 경우 업데이트
-                            elif support_price is not None and support_price > trend_info["low_prices"]:
+                            elif support_price is not None and float(support_price) > trend_info["low_prices"]:
                                 update_query = """
                                     UPDATE TR_SIGNAL_INFO 
                                     SET tr_state = '021', chgr_id = %s, chg_date = %s 
