@@ -417,247 +417,121 @@ def analyze_data(trend_type):
                     # if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
                     if trend_info['result'] == "Turn Up" and volume_surge:
                         
-                        # 커서 생성
-                        cur1 = conn.cursor()
-                        
-                        tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
-                        
-                        # 매매신호정보 존재여부 조회
-                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_dtm = '"+tr_dtm+"'")
-                        result_one = cur1.fetchone()
-                        
-                        if result_one is None:
-                            cur2 = conn.cursor()
+                        with conn.cursor() as cur:
+                            tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
 
-                            # 매매신호정보 '02' 대상 존재여부 조회
-                            cur2.execute("SELECT id, support_price FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'B' AND tr_state = '02'")
-                            result_two = cur2.fetchall()
+                            # 하나의 쿼리로 매매신호정보 존재 여부와 '02' 상태의 대상 조회
+                            query = """
+                                SELECT id, 
+                                    CASE WHEN tr_state = '02' THEN support_price ELSE NULL END AS support_price 
+                                FROM TR_SIGNAL_INFO 
+                                WHERE signal_name = %s 
+                                AND prd_nm = %s 
+                                AND tr_tp = 'B'
+                                AND (tr_dtm = %s OR tr_state = '02')
+                            """
+                            cur.execute(query, (f"TrendLine-{trend_type}", i, tr_dtm))
+                            results = cur.fetchall()
 
-                            # 미존재인 경우, 매매신호정보 생성
-                            if result_two is None:
-                                cur3 = conn.cursor()
-                                ins_param1 = (
-                                    i,               # prd_nm
-                                    "B",             # tr_tp
-                                    tr_dtm,          # tr_dtm
-                                    "01",            # tr_state
-                                    h_close,         # tr_price
-                                    volume,          # tr_volume
-                                    "TrendLine-"+trend_type,    # signal_name
-                                    "AUTO_SIGNAL",   # regr_id
-                                    datetime.now(),  # reg_date
-                                    "AUTO_SIGNAL",   # chgr_id
-                                    datetime.now(),  # chg_date
-                                    trend_info["low_prices"],
-                                    trend_info["high_prices"]
-                                )
-                                
-                                insert1 = """INSERT INTO TR_SIGNAL_INFO (
-                                                prd_nm,
-                                                tr_tp,
-                                                tr_dtm,
-                                                tr_state,
-                                                tr_price,
-                                                tr_volume,
-                                                signal_name,
-                                                regr_id,
-                                                reg_date,
-                                                chgr_id,
-                                                chg_date,
-                                                support_price,
-                                                regist_price
-                                            ) VALUES (
-                                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                            )"""
-                                cur3.execute(insert1, ins_param1)
+                            existing_signal = None
+                            support_price = None
+
+                            for row in results:
+                                if row[1] is None:  # 기존 신호 존재 확인
+                                    existing_signal = row[0]
+                                else:  # '02' 상태의 신호 정보
+                                    support_price = row[1]
+
+                            # 매매신호정보가 없을 때만 INSERT 실행
+                            if existing_signal is None:
+                                insert_query = """
+                                    INSERT INTO TR_SIGNAL_INFO (
+                                        prd_nm, tr_tp, tr_dtm, tr_state, tr_price, tr_volume, signal_name, 
+                                        regr_id, reg_date, chgr_id, chg_date, support_price, regist_price
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                cur.execute(insert_query, (
+                                    i, "B", tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
+                                    "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
+                                    trend_info["low_prices"], trend_info["high_prices"]
+                                ))
                                 conn.commit()
-                                cur3.close()
 
-                            else:
-
-                                for idx, result in enumerate(result_two): 
-
-                                    # 지지가보다 저가가 작은 경우, 매매신호정보 생성 및 기존 '02' 의 매도신호정보 변경(21)
-                                    if result[1] > trend_info["low_prices"]:
-
-                                        cur3 = conn.cursor()
-                                        ins_param1 = (
-                                            i,               # prd_nm
-                                            "B",             # tr_tp
-                                            tr_dtm,          # tr_dtm
-                                            "01",            # tr_state
-                                            h_close,         # tr_price
-                                            volume,          # tr_volume
-                                            "TrendLine-"+trend_type,    # signal_name
-                                            "AUTO_SIGNAL",   # regr_id
-                                            datetime.now(),  # reg_date
-                                            "AUTO_SIGNAL",   # chgr_id
-                                            datetime.now(),  # chg_date
-                                            trend_info["low_prices"],
-                                            trend_info["high_prices"]
-                                        )
-                                        
-                                        insert1 = """INSERT INTO TR_SIGNAL_INFO (
-                                                        prd_nm,
-                                                        tr_tp,
-                                                        tr_dtm,
-                                                        tr_state,
-                                                        tr_price,
-                                                        tr_volume,
-                                                        signal_name,
-                                                        regr_id,
-                                                        reg_date,
-                                                        chgr_id,
-                                                        chg_date,
-                                                        support_price,
-                                                        regist_price
-                                                    ) VALUES (
-                                                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                                    )"""
-                                        cur3.execute(insert1, ins_param1)
-                                        conn.commit()
-                                        cur3.close()
-
-                                        cur4 = conn.cursor()
-                                        upd_param2 = (
-                                            "AUTO_SIGNAL",   # chgr_id
-                                            datetime.now(),  # chg_date
-                                            result[0],       # id
-                                        )
-                                        
-                                        update2 = """UPDATE TR_SIGNAL_INFO SET 
-                                                        tr_state = '021',
-                                                        chgr_id = %s,
-                                                        chg_date = %s
-                                                    WHERE id = %s
-                                                """
-                                        cur4.execute(update2, upd_param2)
-                                        conn.commit()
-                                        cur4.close()
-
-                            cur2.close()    
-                        cur1.close()    
+                            # '02' 상태의 매매신호정보가 있고, 지지 가격보다 저가가 작은 경우 업데이트
+                            elif support_price is not None and support_price > trend_info["low_prices"]:
+                                update_query = """
+                                    UPDATE TR_SIGNAL_INFO 
+                                    SET tr_state = '021', chgr_id = %s, chg_date = %s 
+                                    WHERE id = %s
+                                """
+                                cur.execute(update_query, ("AUTO_SIGNAL", datetime.now(), existing_signal))
+                                conn.commit()
+ 
                         
                     # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
                     elif trend_info['result'] == "Turn Down" and volume_surge:
                         
-                        # 커서 생성
-                        cur1 = conn.cursor()
-                        
-                        tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
-                        
-                        # 매매신호정보 존재여부 조회
-                        cur1.execute("SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_tp = 'S' AND tr_dtm = '"+tr_dtm+"'")
-                        result_one = cur1.fetchone()
-                        
-                        if result_one is None:
-                            cur2 = conn.cursor()
-                            # 매매신호정보 '02' 대상 존재여부 조회
-                            cur2.execute("SELECT id, tr_tp FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = '"+i+"' AND tr_state = '02'")
-                            result_two = cur2.fetchall()
+                        with conn.cursor() as cur:
+                            tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
 
-                            if result_two:
-                                for idx, result in enumerate(result_two): 
+                            # 하나의 쿼리로 매매신호정보 존재 여부 및 '02' 상태의 신호 조회
+                            query = """
+                                SELECT id, tr_tp 
+                                FROM TR_SIGNAL_INFO 
+                                WHERE signal_name = %s 
+                                AND prd_nm = %s 
+                                AND (tr_dtm = %s OR tr_state = '02')
+                            """
+                            cur.execute(query, (f"TrendLine-{trend_type}", i, tr_dtm))
+                            results = cur.fetchall()
 
-                                    # 매수인 경우, 매매신호정보 생성
-                                    if result[1] == 'B':
-                                        cur3 = conn.cursor()
-                                        ins_param1 = (
-                                            i,               # prd_nm
-                                            "S",             # tr_tp
-                                            tr_dtm,          # tr_dtm
-                                            "01",            # tr_state
-                                            h_close,         # tr_price
-                                            volume,          # tr_volume
-                                            "TrendLine-"+trend_type,    # signal_name
-                                            "AUTO_SIGNAL",   # regr_id
-                                            datetime.now(),  # reg_date
-                                            "AUTO_SIGNAL",   # chgr_id
-                                            datetime.now(),  # chg_date
-                                            trend_info["low_prices"],
-                                            trend_info["high_prices"]
-                                        )
-                                        
-                                        insert1 = """INSERT INTO TR_SIGNAL_INFO (
-                                                        prd_nm,
-                                                        tr_tp,
-                                                        tr_dtm,
-                                                        tr_state,
-                                                        tr_price,
-                                                        tr_volume,
-                                                        signal_name,
-                                                        regr_id,
-                                                        reg_date,
-                                                        chgr_id,
-                                                        chg_date,
-                                                        support_price,
-                                                        regist_price
-                                                    ) VALUES (
-                                                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                                    )"""
-                                        cur3.execute(insert1, ins_param1)
+                            existing_signal = None
+                            signal_02_list = []
+
+                            for row in results:
+                                if row[1] is None:  # 이미 같은 시간에 신호가 존재하는 경우
+                                    existing_signal = row[0]
+                                else:  # '02' 상태의 신호
+                                    signal_02_list.append((row[0], row[1]))
+
+                            # 매매신호정보가 없을 때만 INSERT 실행
+                            if existing_signal is None:
+                                insert_query = """
+                                    INSERT INTO TR_SIGNAL_INFO (
+                                        prd_nm, tr_tp, tr_dtm, tr_state, tr_price, tr_volume, signal_name, 
+                                        regr_id, reg_date, chgr_id, chg_date, support_price, regist_price
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+
+                                for signal_id, tr_tp in signal_02_list:
+                                    new_tr_tp = "S"  # 항상 새로운 신호는 'S' (매도)
+
+                                    # 매수('B')인 경우, 신규 신호만 생성
+                                    if tr_tp == 'B':
+                                        cur.execute(insert_query, (
+                                            i, new_tr_tp, tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
+                                            "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
+                                            trend_info["low_prices"], trend_info["high_prices"]
+                                        ))
                                         conn.commit()
-                                        cur3.close()
 
-                                    # 매도인 경우, 매매신호정보 생성 및 기존 '02' 의 매도신호정보 변경(21)
-                                    elif result[1] == 'S':
-                                        cur3 = conn.cursor()
-                                        ins_param1 = (
-                                            i,               # prd_nm
-                                            "S",             # tr_tp
-                                            tr_dtm,          # tr_dtm
-                                            "01",            # tr_state
-                                            h_close,         # tr_price
-                                            volume,          # tr_volume
-                                            "TrendLine-"+trend_type,    # signal_name
-                                            "AUTO_SIGNAL",   # regr_id
-                                            datetime.now(),  # reg_date
-                                            "AUTO_SIGNAL",   # chgr_id
-                                            datetime.now(),  # chg_date
-                                            trend_info["low_prices"],
-                                            trend_info["high_prices"]
-                                        )
-                                        
-                                        insert1 = """INSERT INTO TR_SIGNAL_INFO (
-                                                        prd_nm,
-                                                        tr_tp,
-                                                        tr_dtm,
-                                                        tr_state,
-                                                        tr_price,
-                                                        tr_volume,
-                                                        signal_name,
-                                                        regr_id,
-                                                        reg_date,
-                                                        chgr_id,
-                                                        chg_date,
-                                                        support_price,
-                                                        regist_price
-                                                    ) VALUES (
-                                                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                                    )"""
-                                        cur3.execute(insert1, ins_param1)
+                                    # 매도('S')인 경우, 기존 '02' 상태 신호를 '021'로 변경 후 신규 신호 생성
+                                    elif tr_tp == 'S':
+                                        cur.execute(insert_query, (
+                                            i, new_tr_tp, tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
+                                            "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
+                                            trend_info["low_prices"], trend_info["high_prices"]
+                                        ))
                                         conn.commit()
-                                        cur3.close()
 
-                                        cur4 = conn.cursor()
-                                        upd_param2 = (
-                                            "AUTO_SIGNAL",   # chgr_id
-                                            datetime.now(),  # chg_date
-                                            result[0],       # id
-                                        )
-                                        
-                                        update2 = """UPDATE TR_SIGNAL_INFO SET 
-                                                        tr_state = '021',
-                                                        chgr_id = %s,
-                                                        chg_date = %s
-                                                    WHERE id = %s
-                                                """
-                                        cur4.execute(update2, upd_param2)
+                                        update_query = """
+                                            UPDATE TR_SIGNAL_INFO 
+                                            SET tr_state = '021', chgr_id = %s, chg_date = %s 
+                                            WHERE id = %s
+                                        """
+                                        cur.execute(update_query, ("AUTO_SIGNAL", datetime.now(), signal_id))
                                         conn.commit()
-                                        cur4.close()    
-
-                            cur2.close()
-                        cur1.close()    
+ 
                         
             # 연결 종료
             cur01.close()
