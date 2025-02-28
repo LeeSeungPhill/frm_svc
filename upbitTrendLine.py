@@ -128,18 +128,24 @@ def calculate_peaks_and_troughs(data):
 
     for i in range(1, len(data) - 1):
         prev_close = data['close'].iloc[i - 1]
+        prev_low = data['low'].iloc[i - 1]
+        prev_high = data['high'].iloc[i - 1]
         curr_close = data['close'].iloc[i]
+        curr_low = data['low'].iloc[i]
+        curr_high = data['high'].iloc[i]
         next_close = data['close'].iloc[i + 1]
+        next_low = data['low'].iloc[i + 1]
+        next_high = data['high'].iloc[i + 1]
 
         # 고점: 상승 후 하락
-        if curr_close > prev_close and curr_close > next_close:
-            highs.append(curr_close)
+        if curr_high > prev_high and curr_high > next_high:
+            highs.append(curr_high)
         else:
             highs.append(None)
 
         # 저점: 하락 후 상승
-        if curr_close < prev_close and curr_close < next_close:
-            lows.append(curr_close)
+        if curr_low < prev_low and curr_low < next_low:
+            lows.append(curr_low)
         else:
             lows.append(None)
 
