@@ -356,7 +356,7 @@ def analyze_data(trend_type):
                         print(message)
 
                         if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), i, 'B'):  # UPDATE가 수행된 경우만 실행
-                            signal_sell = "02"
+                            signal_buy = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
                         
