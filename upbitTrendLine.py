@@ -209,55 +209,55 @@ def calculate_indicators(data):
 
     return data
 
-def update_tr_state(conn, state, signal_id, prd_nm=None, tr_tp=None):
+def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_tp=None):
     with conn.cursor() as cur:
         
         if prd_nm:
             # tr_state = '02'인 데이터가 존재하는지 확인
             cur.execute(
-                "SELECT EXISTS (SELECT 1 FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = %s AND tr_state = '02')",
+                "SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = %s AND tr_state = '02'",
                 (prd_nm, tr_tp)
             )
-            exists = cur.fetchone()[0]  # True or False 반환
+            result = cur.fetchone()
 
-            if not exists:
+            if result is None:
                     
-                query2 = """UPDATE TR_SIGNAL_INFO SET 
+                query1 = """UPDATE TR_SIGNAL_INFO SET 
+                                tr_price = %s,
+                                tr_dtm = %s,
                                 tr_state = %s,
-                                chgr_id = %s,
                                 chg_date = %s
                             WHERE id = %s
                         """
-                cur.execute(query2, (state, "AUTO_SIGNAL", datetime.now(), signal_id))
+                cur.execute(query1, (current_price, datetime.now().strftime('%Y%m%d%H%M%S'), state,  datetime.now(), signal_id))
                 conn.commit()
                     
                 return True
             
             else:
+                existing_id = result[0]
+
+                # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
+                query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, regr_id, reg_date, chgr_id, chg_date) 
+                            SELECT
+                                SELECT prd_nm, tr_tp, %s, '02', %s, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s 
+                            WHERE id = %s
+                        """
+                cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), existing_id))
+
+                query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '23', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                cur.execute(query2, (current_price, datetime.now(), existing_id))
+
+                conn.commit()
                 
-                if tr_tp == 'B':
-                    query1 = """UPDATE TR_SIGNAL_INFO SET 
-                                tr_state = '23',
-                                chgr_id = %s,
-                                chg_date = %s
-                            WHERE tr_state = '02'
-                            AND prd_nm = %s
-                            AND tr_tp = 'S'
-                        """
-                    cur.execute(query1, ("AUTO_SIGNAL", datetime.now(), prd_nm))
-                    conn.commit()
-                    
-                elif tr_tp == 'S':
-                    query1 = """UPDATE TR_SIGNAL_INFO SET 
-                                tr_state = '23',
-                                chgr_id = %s,
-                                chg_date = %s
-                            WHERE tr_state = '02'
-                            AND prd_nm = %s
-                            AND tr_tp = 'B'
-                        """
-                    cur.execute(query1, ("AUTO_SIGNAL", datetime.now(), prd_nm))
-                    conn.commit()
+                formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                if tr_tp == "B":
+                    message = f"{prd_nm} 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                else:
+                    message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "    
+                print(message)
+                send_slack_message("#매매신호", message)
             
                 return False
         
@@ -265,11 +265,10 @@ def update_tr_state(conn, state, signal_id, prd_nm=None, tr_tp=None):
             
             query = """UPDATE TR_SIGNAL_INFO SET 
                                 tr_state = %s,
-                                chgr_id = %s,
                                 chg_date = %s
                             WHERE id = %s
                         """
-            cur.execute(query, (state, "AUTO_SIGNAL", datetime.now(), signal_id))
+            cur.execute(query, (state, datetime.now(), signal_id))
             conn.commit()
             
             return True
@@ -356,7 +355,7 @@ def analyze_data(trend_type):
                         message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
 
-                        if update_tr_state(conn, '02', result[0], i, 'B'):  # UPDATE가 수행된 경우만 실행
+                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), i, 'B'):  # UPDATE가 수행된 경우만 실행
                             signal_sell = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
@@ -378,7 +377,7 @@ def analyze_data(trend_type):
                         message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
                         
-                        if update_tr_state(conn, '02', result[0], i, 'S'):  # UPDATE가 수행된 경우만 실행
+                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), i, 'S'):  # UPDATE가 수행된 경우만 실행
                             signal_sell = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
@@ -455,11 +454,14 @@ def analyze_data(trend_type):
                             regist_price = None
 
                             for row in results:
+                                existing_id = row[0]
                                 regist_price = row[1]
 
                                 # 고가가 저항가격보다 큰 경우 업데이트(tr_state = '21')
                                 if float(regist_price) < trend_info["high_prices"]:                                
-                                    update_tr_state(conn, '21', row[0])
+                                    update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                                    cur.execute(update_query, (current_price, datetime.now(), existing_id))
+                                    conn.commit()
  
                         
                     # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
@@ -504,11 +506,14 @@ def analyze_data(trend_type):
                             support_price = None
 
                             for row in results:
+                                existing_id = row[0]
                                 support_price = row[1]
 
                                 # 지지가격보다 저가가 작은 경우 업데이트(tr_state = '22')
                                 if float(support_price) > trend_info["low_prices"]:                                
-                                    update_tr_state(conn, '22', row[0])
+                                    update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                                    cur.execute(update_query, (current_price, datetime.now(), existing_id))
+                                    conn.commit()
                         
             # 연결 종료
             cur01.close()
