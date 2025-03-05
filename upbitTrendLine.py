@@ -471,7 +471,11 @@ def analyze_data(trend_type):
                                     update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
                                     cur.execute(update_query, (float(current_price), datetime.now(), existing_id))
                                     conn.commit()
- 
+                                    
+                                    formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    message = f"{i} 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
+                                    print(message)
+                                    send_slack_message("#매매신호", message)
                         
                     # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
                     elif trend_info['result'] == "Turn Down" and volume_surge:
@@ -523,6 +527,11 @@ def analyze_data(trend_type):
                                     update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
                                     cur.execute(update_query, (float(current_price), datetime.now(), existing_id))
                                     conn.commit()
+                                    
+                                    formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    message = f"{i} 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
+                                    print(message)
+                                    send_slack_message("#매매신호", message)
                         
             # 연결 종료
             cur01.close()
