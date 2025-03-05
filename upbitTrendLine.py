@@ -231,16 +231,14 @@ def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_
                         """
                 cur.execute(query1, (current_price, datetime.now().strftime('%Y%m%d%H%M%S'), state,  datetime.now(), signal_id))
                 conn.commit()
-                    
-                return True
             
             else:
                 existing_id = result[0]
 
                 # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
-                query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, regr_id, reg_date, chgr_id, chg_date) 
+                query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date) 
                             SELECT
-                                prd_nm, tr_tp, %s, '02', %s, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s 
+                                prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s 
                             FROM TR_SIGNAL_INFO
                             WHERE id = %s
                         """
@@ -259,8 +257,6 @@ def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_
                     message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "    
                 print(message)
                 send_slack_message("#매매신호", message)
-            
-                return False
         
         else:
             
@@ -272,7 +268,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_
             cur.execute(query, (state, datetime.now(), signal_id))
             conn.commit()
             
-            return True
+        return True
     
 # Slack 메시지 전송 함수
 def send_slack_message(channel, message):
@@ -461,7 +457,7 @@ def analyze_data(trend_type):
                                 # 고가가 저항가격보다 큰 경우 업데이트(tr_state = '21')
                                 if float(regist_price) < trend_info["high_prices"]:                                
                                     update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                                    cur.execute(update_query, (current_price, datetime.now(), existing_id))
+                                    cur.execute(update_query, (float(current_price), datetime.now(), existing_id))
                                     conn.commit()
  
                         
@@ -513,7 +509,7 @@ def analyze_data(trend_type):
                                 # 지지가격보다 저가가 작은 경우 업데이트(tr_state = '22')
                                 if float(support_price) > trend_info["low_prices"]:                                
                                     update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                                    cur.execute(update_query, (current_price, datetime.now(), existing_id))
+                                    cur.execute(update_query, (float(current_price), datetime.now(), existing_id))
                                     conn.commit()
                         
             # 연결 종료
