@@ -209,7 +209,7 @@ def calculate_indicators(data):
 
     return data
 
-def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_tp=None):
+def update_tr_state(conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None):
     with conn.cursor() as cur:
         
         if prd_nm:
@@ -236,13 +236,25 @@ def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_
                 existing_id = result[0]
 
                 # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
-                query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date) 
+                if tr_tp == "B":
+                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price) 
+                                SELECT
+                                    prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s,
+                                    CASE WHEN %s > tr_price THEN tr_price ELSE support_price END, %s
+                                FROM TR_SIGNAL_INFO
+                                WHERE id = %s
+                            """
+                    cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), current_price, signal_price, existing_id))
+                else:
+                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price) 
                             SELECT
-                                prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s 
+                                prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, %s,
+                                CASE WHEN %s < tr_price THEN tr_price ELSE regist_price END
+                                END AS regist_price
                             FROM TR_SIGNAL_INFO
                             WHERE id = %s
-                        """
-                cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), existing_id))
+                        """    
+                    cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), signal_price, current_price, existing_id))
 
                 query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '23', u_tr_price = %s, chg_date = %s WHERE id = %s"
                 cur.execute(query2, (current_price, datetime.now(), existing_id))
@@ -352,7 +364,7 @@ def analyze_data(trend_type):
                         message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
 
-                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), i, 'B'):  # UPDATE가 수행된 경우만 실행
+                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B'):  # UPDATE가 수행된 경우만 실행
                             signal_buy = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
@@ -374,7 +386,7 @@ def analyze_data(trend_type):
                         message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
                         
-                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), i, 'S'):  # UPDATE가 수행된 경우만 실행
+                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S'):  # UPDATE가 수행된 경우만 실행
                             signal_sell = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
