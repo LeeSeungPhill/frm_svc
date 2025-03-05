@@ -240,7 +240,8 @@ def update_tr_state(conn, state, signal_id, current_price=None, prd_nm=None, tr_
                 # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
                 query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, regr_id, reg_date, chgr_id, chg_date) 
                             SELECT
-                                SELECT prd_nm, tr_tp, %s, '02', %s, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s 
+                                prd_nm, tr_tp, %s, '02', %s, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s 
+                            FROM TR_SIGNAL_INFO
                             WHERE id = %s
                         """
                 cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), existing_id))
