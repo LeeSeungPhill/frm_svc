@@ -230,6 +230,14 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                             WHERE id = %s
                         """
                 cur.execute(query1, (current_price, datetime.now().strftime('%Y%m%d%H%M%S'), state,  datetime.now(), signal_id))
+                
+                if tr_tp == "B":
+                    query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE tr_tp = 'S' AND tr_steate = '02'"
+                    cur.execute(query2, (current_price, datetime.now()))
+                else:
+                    query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE tr_tp = 'B' AND tr_steate = '02'"
+                    cur.execute(query2, (current_price, datetime.now()))    
+
                 conn.commit()
             
             else:
