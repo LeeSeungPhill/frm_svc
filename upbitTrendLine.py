@@ -226,6 +226,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                 tr_price = %s,
                                 tr_dtm = %s,
                                 tr_state = %s,
+                                tr_count = 1,
                                 chg_date = %s
                             WHERE id = %s
                         """
@@ -245,23 +246,22 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
 
                 # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
                 if tr_tp == "B":
-                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price) 
+                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count) 
                                 SELECT
                                     prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s,
-                                    CASE WHEN %s > tr_price THEN tr_price ELSE support_price END, %s
+                                    CASE WHEN %s > tr_price THEN tr_price ELSE support_price END, %s, tr_count+1
                                 FROM TR_SIGNAL_INFO
                                 WHERE id = %s
                             """
                     cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), current_price, signal_price, existing_id))
                 else:
-                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price) 
-                            SELECT
-                                prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, %s,
-                                CASE WHEN %s < tr_price THEN tr_price ELSE regist_price END
-                                END AS regist_price
-                            FROM TR_SIGNAL_INFO
-                            WHERE id = %s
-                        """    
+                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count) 
+                                SELECT
+                                    prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, %s,
+                                    CASE WHEN %s < tr_price THEN tr_price ELSE regist_price END, tr_count+1                                    
+                                FROM TR_SIGNAL_INFO
+                                WHERE id = %s
+                            """    
                     cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), signal_price, current_price, existing_id))
 
                 query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '23', u_tr_price = %s, chg_date = %s WHERE id = %s"
