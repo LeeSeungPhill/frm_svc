@@ -476,8 +476,12 @@ def analyze_data(trend_type):
 
                                 # 고가가 저항가격보다 큰 경우 업데이트(tr_state = '21')
                                 if float(regist_price) < trend_info["high_prices"]:                                
-                                    update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                                    cur.execute(update_query, (float(current_price), datetime.now(), existing_id))
+                                    update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                                    cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
+                                    
+                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_dtm <= %s"
+                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i, tr_dtm))
+                                    
                                     conn.commit()
                                     
                                     formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -532,8 +536,12 @@ def analyze_data(trend_type):
 
                                 # 지지가격보다 저가가 작은 경우 업데이트(tr_state = '22')
                                 if float(support_price) > trend_info["low_prices"]:                                
-                                    update_query = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                                    cur.execute(update_query, (float(current_price), datetime.now(), existing_id))
+                                    update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                                    cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
+                                    
+                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_dtm <= %s"
+                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i, tr_dtm))
+                                    
                                     conn.commit()
                                     
                                     formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
