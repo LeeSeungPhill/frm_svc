@@ -240,6 +240,8 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                     cur.execute(query2, (current_price, datetime.now(), prd_nm))    
 
                 conn.commit()
+                
+                return "new"
             
             else:
                 formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -333,6 +335,8 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                         message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                         print(message)
                         send_slack_message("#매매신호", message)
+                        
+                return "exists"        
         
         else:
             
@@ -344,7 +348,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
             cur.execute(query, (state, datetime.now(), signal_id))
             conn.commit()
             
-        return True
+            return "update"
     
 # Slack 메시지 전송 함수
 def send_slack_message(channel, message):
@@ -427,11 +431,15 @@ def analyze_data(trend_type):
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
                         message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
+                        
+                        result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B')
 
-                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B'):  # UPDATE가 수행된 경우만 실행
+                        if result == "new":
                             signal_buy = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
+                        elif result == "exists":
+                            signal_buy = "02"   
                         
                     elif signal_buy == "02":    # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
                         
@@ -450,10 +458,14 @@ def analyze_data(trend_type):
                         message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
                         
-                        if update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S'):  # UPDATE가 수행된 경우만 실행
+                        result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S')
+                        
+                        if result == "new":
                             signal_sell = "02"
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
+                        elif result == "exists":
+                            signal_buy = "02"   
                         
                     elif signal_sell == "02":   # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
                         
