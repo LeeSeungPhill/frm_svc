@@ -249,7 +249,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
 
                 # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
                 if tr_tp == "B":
-                    query1 = """WITH new_signal AS (
+                    query = """WITH new_signal AS (
                                     INSERT INTO TR_SIGNAL_INFO (
                                         prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count
                                     ) 
@@ -267,7 +267,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                 WHERE id = %s
                             """
 
-                    cur.execute(query1, (
+                    cur.execute(query, (
                         datetime.now().strftime('%Y%m%d%H%M%S'),  # tr_dtm
                         current_price,  # tr_price
                         datetime.now(),  # reg_date
@@ -465,7 +465,7 @@ def analyze_data(trend_type):
                             # Slack 메시지 전송
                             send_slack_message("#매매신호", message)
                         elif result == "exists":
-                            signal_buy = "02"   
+                            signal_sell = "02"   
                         
                     elif signal_sell == "02":   # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
                         
