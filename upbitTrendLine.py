@@ -254,18 +254,34 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                 WHERE id = %s
                             """
                     cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), current_price, signal_price, existing_id))
+                    
+                    query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '23', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                    cur.execute(query2, (current_price, datetime.now(), existing_id))
                 else:
-                    query1 = """INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count) 
+                    query1 = """WITH existing_signal_02 AS (
+                                    SELECT 1 FROM TR_SIGNAL_INFO WHERE tr_tp = 'B' AND prd_nm = %s AND tr_state = '02' LIMIT 1
+                                )
+                                INSERT INTO TR_SIGNAL_INFO (prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count) 
                                 SELECT
                                     prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, %s,
                                     CASE WHEN %s < tr_price THEN tr_price ELSE regist_price END, tr_count+1                                    
-                                FROM TR_SIGNAL_INFO
+                                FROM TR_SIGNAL_INFO LEFT OUTER JOIN existing_signal_02 ON TRUE
                                 WHERE id = %s
+                                AND EXISTS (SELECT 1 FROM existing_signal_02)
                             """    
-                    cur.execute(query1, (datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), signal_price, current_price, existing_id))
+                    cur.execute(query1, (prd_nm, datetime.now().strftime('%Y%m%d%H%M%S'), current_price, datetime.now(), datetime.now(), signal_price, current_price, existing_id))
 
-                query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '23', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                cur.execute(query2, (current_price, datetime.now(), existing_id))
+                    query2 = """WITH existing_signal_02 AS (
+                                    SELECT 1 FROM TR_SIGNAL_INFO WHERE tr_tp = 'B' AND prd_nm = %s AND tr_state = '02' LIMIT 1
+                                )
+                                UPDATE TR_SIGNAL_INFO 
+                                SET tr_state = '23', 
+                                    u_tr_price = %s, 
+                                    chg_date = %s
+                                WHERE id = %s 
+                                AND EXISTS (SELECT 1 FROM existing_signal_02)
+                            """
+                    cur.execute(query2, (prd_nm, current_price, datetime.now(), existing_id))
 
                 conn.commit()
                 
