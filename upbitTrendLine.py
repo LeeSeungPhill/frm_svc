@@ -235,9 +235,15 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                 if tr_tp == "B":
                     query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '02'"
                     cur.execute(query2, (current_price, datetime.now(), prd_nm))
+                    
+                    query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
+                    cur.execute(query3, (datetime.now(), prd_nm))
                 else:
                     query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '02'"
-                    cur.execute(query2, (current_price, datetime.now(), prd_nm))    
+                    cur.execute(query2, (current_price, datetime.now(), prd_nm))
+                    
+                    query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
+                    cur.execute(query3, (datetime.now(), prd_nm))    
 
                 conn.commit()
                 
@@ -281,6 +287,10 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                     ))
 
                     result = cur.fetchone()
+                    
+                    query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
+                    cur.execute(query3, (datetime.now(), prd_nm))
+                    
                     conn.commit()
                     
                     if result:
@@ -328,6 +338,10 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                     ))
 
                     result = cur.fetchone()
+                    
+                    query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
+                    cur.execute(query3, (datetime.now(), prd_nm))
+                    
                     conn.commit()
 
                     if result:
@@ -547,7 +561,7 @@ def analyze_data(trend_type):
                                     update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
                                     cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
                                     
-                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' AND tr_dtm <= %s"
+                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
                                     cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i, tr_dtm))
                                     
                                     conn.commit()
@@ -607,7 +621,7 @@ def analyze_data(trend_type):
                                     update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
                                     cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
                                     
-                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' AND tr_dtm <= %s"
+                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
                                     cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i, tr_dtm))
                                     
                                     conn.commit()
