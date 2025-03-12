@@ -1,5 +1,6 @@
 import jwt
 import hashlib
+import sys
 import os
 import requests
 import uuid
@@ -64,13 +65,20 @@ def analyze_data(user, market, trend_type):
         host=DB_HOST,
         port=DB_PORT
     )
+    
+    if sys.platform == "win32":
+        python_executable = "python"
+        script_path = "C:\\Project\\frm_batch_svc\\main.py"
+    else:
+        python_executable = "python3"
+        script_path = "/Users/phillseungkorea/Documents/frm_batch_svc/main.py"
 
     cur031 = conn.cursor()
     result_31 = []
 
     # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매수 대상)
     query31 = """
-                SELECT A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, A.tr_count, B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                SELECT A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, COALESCE(A.tr_count, 1), B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
                 FROM TR_SIGNAL_INFO A
                 LEFT OUTER JOIN TRADE_PLAN B
                 ON split_part(A.prd_nm, '/', 1) = substr(B.prd_nm, 5) AND B.plan_tp = 'B1'
@@ -105,7 +113,7 @@ def analyze_data(user, market, trend_type):
         trade_list_json = json.dumps(trade_list, default=decimal_converter)
         safe_trade_list_json = shlex.quote(trade_list_json)    
         
-        # os.system(f"python C:\\Project\\frm_batch_svc\\main.py order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
+        os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
 
     cur01 = conn.cursor()
 
@@ -216,7 +224,7 @@ def analyze_data(user, market, trend_type):
                             SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'B' AND TR_STATE = '22' and signal_name = %s AND SELL_ORDER_NO IS null
                         )
                         SELECT 
-                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, A.tr_count, B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, COALESCE(A.tr_count, 1), B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
                         FROM (
                             SELECT * 
                             FROM signal_info 
@@ -232,18 +240,23 @@ def analyze_data(user, market, trend_type):
                     result_32 = cur032.fetchall()
 
                     trade_list = []
+                    support_price = 0
+                    regist_price = 0
 
                     if result_32 is not None:
-                        for item in result_32:
+                        for trade_signal in result_32:
+                            support_price = trade_signal[10] if trade_signal[10] is not None else trade_signal[3]
+                            regist_price = trade_signal[11] if trade_signal[11] is not None else trade_signal[4]
+                            
                             trade_info = {
                                 "tr_tp": "S",
                                 "tr_state": "02",
-                                "id": item[0],
-                                "prd_nm": item[1],
-                                "tr_price": item[2],
-                                "support_price": item[10] if item[10] is not None else item[3],
-                                "regist_price": item[11] if item[11] is not None else item[4],
-                                "tr_count": item[5],
+                                "id": trade_signal[0],
+                                "prd_nm": trade_signal[1],
+                                "tr_price": trade_signal[2],
+                                "support_price": support_price,
+                                "regist_price": regist_price,
+                                "tr_count": trade_signal[5],
                                 "sell_order_no": None,
                                 "plan_amt": 1000000  # 매매예정금액
                             }
@@ -252,7 +265,7 @@ def analyze_data(user, market, trend_type):
                         trade_list_json = json.dumps(trade_list, default=decimal_converter)
                         safe_trade_list_json = shlex.quote(trade_list_json)    
                         
-                        # os.system(f"python C:\\Project\\frm_batch_svc\\main.py order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
+                        os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
 
                     # 최종 주문관리정보 매수 체결건 대상의 주문가 5% 이상 수익여부 체크 -> 조건해당시 해당 주문의 절반 매도 주문
 
@@ -266,8 +279,8 @@ def analyze_data(user, market, trend_type):
                         loss_profit_rate,
                         current_price,
                         current_amt,
-                        result_31[5] if result_31 != None else 0,
-                        result_31[4] if result_31 != None else 0,
+                        regist_price,
+                        support_price,
                         user_id,
                         datetime.now(),
                         cust_info['cust_num'],
@@ -283,8 +296,8 @@ def analyze_data(user, market, trend_type):
                         loss_profit_rate,
                         current_price,
                         current_amt,
-                        result_31[5] if result_31 != None else 0,
-                        result_31[4] if result_31 != None else 0,
+                        regist_price,
+                        support_price,
                         'Y',
                         user_id,
                         datetime.now(),
