@@ -11,6 +11,8 @@ import time
 import psycopg2
 from datetime import datetime, timedelta
 import schedule
+import json
+import shlex
 
 api_url = os.getenv("UPBIT_API")
 
@@ -20,6 +22,11 @@ DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
 DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
+
+def decimal_converter(obj):
+    if isinstance(obj, Decimal):
+        return float(obj)  # Decimal을 float으로 변환
+    raise TypeError(f"Type {type(obj)} not serializable")
 
 def get_order(access_key, secret_key, order_uuid):
     params = {"uuid": order_uuid}
@@ -57,6 +64,48 @@ def analyze_data(user, market, trend_type):
         host=DB_HOST,
         port=DB_PORT
     )
+
+    cur031 = conn.cursor()
+    result_31 = []
+
+    # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매수 대상)
+    query31 = """
+                SELECT A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, A.tr_count, B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                FROM TR_SIGNAL_INFO A
+                LEFT OUTER JOIN TRADE_PLAN B
+                ON split_part(A.prd_nm, '/', 1) = substr(B.prd_nm, 5) AND B.plan_tp = 'B1'
+                WHERE A.signal_name = %s
+                AND A.tr_tp = 'B'
+                AND A.tr_state = '02'
+                AND A.buy_order_no IS NULL
+                ORDER BY A.tr_dtm DESC
+            """
+    param1 = (f"TrendLine-{trend_type}",)
+    cur031.execute(query31, param1)  
+    result_31 = cur031.fetchall()
+
+    trade_list = []
+
+    if result_31 is not None:
+        for item in result_31:
+            trade_info = {
+                "tr_tp": "B",
+                "tr_state": "02",
+                "id": item[0],
+                "prd_nm": item[1],
+                "tr_price": item[2],
+                "support_price": item[10] if item[10] is not None else item[3],
+                "regist_price": item[11] if item[11] is not None else item[4],
+                "tr_count": item[5],
+                "buy_order_no": None,
+                "plan_amt": 1000000  # 매매예정금액
+            }
+            trade_list.append(trade_info)
+
+        trade_list_json = json.dumps(trade_list, default=decimal_converter)
+        safe_trade_list_json = shlex.quote(trade_list_json)    
+        
+        # os.system(f"python C:\\Project\\frm_batch_svc\\main.py order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
 
     cur01 = conn.cursor()
 
@@ -156,13 +205,59 @@ def analyze_data(user, market, trend_type):
 
                     print(name,"price : ",price,", volume : ",volume,", amt : ",amt,", current_price : ",current_price,", current_amt : ",current_amt,", loss_profit_amt : ",loss_profit_amt,", loss_profit_rate : ",loss_profit_rate)    
                 
-                    cur031 = conn.cursor()
-                    result_31 = []
-                    # 매매신호정보 조회
-                    query31 = "SELECT id, tr_dtm, tr_price, tr_volume, support_price, regist_price FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '02' order by tr_dtm desc LIMIT 1"
-                    cur031.execute(query31, (item['currency']+"/KRW", ))  
-                    result_31 = cur031.fetchone()
-                
+                    cur032 = conn.cursor()
+                    result_32 = []
+                    
+                    # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매도 대상)
+                    query32 = """
+                        WITH signal_info AS (
+                            SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'S' AND TR_STATE = '02' and signal_name = %s AND SELL_ORDER_NO IS null
+                            UNION
+                            SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'B' AND TR_STATE = '22' and signal_name = %s AND SELL_ORDER_NO IS null
+                        )
+                        SELECT 
+                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, A.tr_count, B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                        FROM (
+                            SELECT * 
+                            FROM signal_info 
+                            WHERE split_part(prd_nm, '/', 1) = %s 
+                            ORDER BY tr_dtm DESC 
+                            LIMIT 1  -- 최신 데이터 한 건만 가져옴
+                        ) A
+                        LEFT OUTER JOIN TRADE_PLAN B
+                        ON split_part(A.prd_nm, '/', 1) = substr(B.prd_nm, 5) AND B.plan_tp = 'S1'
+                    """
+                    param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", item['currency'],)
+                    cur032.execute(query32, param2)  
+                    result_32 = cur032.fetchall()
+
+                    trade_list = []
+
+                    if result_32 is not None:
+                        for item in result_32:
+                            trade_info = {
+                                "tr_tp": "S",
+                                "tr_state": "02",
+                                "id": item[0],
+                                "prd_nm": item[1],
+                                "tr_price": item[2],
+                                "support_price": item[10] if item[10] is not None else item[3],
+                                "regist_price": item[11] if item[11] is not None else item[4],
+                                "tr_count": item[5],
+                                "sell_order_no": None,
+                                "plan_amt": 1000000  # 매매예정금액
+                            }
+                            trade_list.append(trade_info)
+
+                        trade_list_json = json.dumps(trade_list, default=decimal_converter)
+                        safe_trade_list_json = shlex.quote(trade_list_json)    
+                        
+                        # os.system(f"python C:\\Project\\frm_batch_svc\\main.py order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
+
+                    # 최종 주문관리정보 매수 체결건 대상의 주문가 5% 이상 수익여부 체크 -> 조건해당시 해당 주문의 절반 매도 주문
+
+
+
                     # 잔고정보 현행화
                     ins_param1 = (
                         price,
