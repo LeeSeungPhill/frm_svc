@@ -215,7 +215,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
         if prd_nm:
             # tr_state = '02'인 데이터가 존재하는지 확인
             cur.execute(
-                "SELECT id FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = %s AND tr_state = '02'",
+                "SELECT id, chg_date FROM TR_SIGNAL_INFO WHERE prd_nm = %s AND tr_tp = %s AND tr_state = '02'",
                 (prd_nm, tr_tp)
             )
             result = cur.fetchone()
@@ -252,77 +252,23 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
             else:
                 formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 existing_id = result[0]
+                last_dtm = result[1]
+                pre_one_hour_dtm = datetime.now() - timedelta(hours=1)
 
-                # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
-                if tr_tp == "B":
-                    
-                    # INSERT 실행 후 ID 가져오기
-                    query_insert = """
-                        INSERT INTO TR_SIGNAL_INFO (
-                            prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count
-                        ) 
-                        SELECT 
-                            prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, 
-                            CASE WHEN %s > tr_price THEN tr_price ELSE support_price END, %s, tr_count + 1
-                        FROM TR_SIGNAL_INFO
-                        WHERE id = %s
-                        RETURNING id
-                    """
+                if last_dtm < pre_one_hour_dtm:
 
-                    cur.execute(query_insert, (
-                        datetime.now().strftime('%Y%m%d%H%M%S'),  # tr_dtm
-                        current_price,  # tr_price
-                        datetime.now(),  # reg_date
-                        datetime.now(),  # chg_date
-                        current_price,  # 비교할 현재 가격
-                        signal_price,  # 등록 가격
-                        existing_id  # 기존 신호 ID
-                    ))
-
-                    result = cur.fetchone()  # 새로 삽입된 ID 가져오기
-                    if result:
-                        new_signal_id = result[0]  # 반환된 id 저장
-
-                        # UPDATE 실행
-                        query_update = """
-                            UPDATE TR_SIGNAL_INFO 
-                            SET tr_state = '23', 
-                                u_tr_price = %s, 
-                                chg_date = %s
-                            WHERE id = %s
-                        """
-                        cur.execute(query_update, (current_price, datetime.now(), existing_id))
-
-                        # 다른 신호 상태 변경
-                        query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
-                        cur.execute(query3, (datetime.now(), prd_nm))
-
-                        conn.commit()
-                    else:
-                        print("INSERT 실패: 새로운 신호 ID가 반환되지 않았습니다.")
-                    
-                    if result:
-                        message = f"{prd_nm} 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
-                        print(message)
-                        send_slack_message("#매매신호", message)
-                
-                else:
-                    
-                    # 기존 신호 '02' 상태가 있는지 확인
-                    query_check = "SELECT 1 FROM TR_SIGNAL_INFO WHERE tr_tp = 'B' AND prd_nm = %s AND tr_state = '02' LIMIT 1"
-                    cur.execute(query_check, (prd_nm,))
-                    exists = cur.fetchone()
-
-                    if exists:  # 기존 신호가 존재할 때만 실행
+                    # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
+                    if tr_tp == "B":
+                        
                         # INSERT 실행 후 ID 가져오기
                         query_insert = """
                             INSERT INTO TR_SIGNAL_INFO (
                                 prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count
                             ) 
-                            SELECT
-                                prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, %s,
-                                CASE WHEN %s < tr_price THEN tr_price ELSE regist_price END, tr_count + 1                                    
-                            FROM TR_SIGNAL_INFO 
+                            SELECT 
+                                prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, 
+                                CASE WHEN %s > tr_price THEN tr_price ELSE support_price END, %s, tr_count + 1
+                            FROM TR_SIGNAL_INFO
                             WHERE id = %s
                             RETURNING id
                         """
@@ -332,14 +278,14 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                             current_price,  # tr_price
                             datetime.now(),  # reg_date
                             datetime.now(),  # chg_date
-                            signal_price,  # support_price
-                            current_price,  # regist_price
+                            current_price,  # 비교할 현재 가격
+                            signal_price,  # 등록 가격
                             existing_id  # 기존 신호 ID
                         ))
 
-                        result = cur.fetchone()
+                        result = cur.fetchone()  # 새로 삽입된 ID 가져오기
                         if result:
-                            new_signal_id = result[0]  # 반환된 ID 저장
+                            new_signal_id = result[0]  # 반환된 id 저장
 
                             # UPDATE 실행
                             query_update = """
@@ -348,31 +294,79 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                     u_tr_price = %s, 
                                     chg_date = %s
                                 WHERE id = %s
-                                RETURNING TRUE
                             """
                             cur.execute(query_update, (current_price, datetime.now(), existing_id))
-                            update_result = cur.fetchone()
 
-                            if update_result:
-                                # 추가 업데이트 실행
-                                query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
-                                cur.execute(query3, (datetime.now(), prd_nm))
+                            # 다른 신호 상태 변경
+                            query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
+                            cur.execute(query3, (datetime.now(), prd_nm))
 
-                                conn.commit()
-                            else:
-                                print("UPDATE가 실행되지 않음.")
-                        else:
-                            print("INSERT가 실행되지 않음.")
+                            conn.commit()
+
+                            message = f"{prd_nm} 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                            print(message)
+                            send_slack_message("#매매신호", message)
+                    
                     else:
-                        print("기존 신호 '02' 상태 없음.")
-
-                    if result:
-                        formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
-                        print(message)
-                        send_slack_message("#매매신호", message)
                         
-                return "exists"        
+                        # 기존 신호 '02' 상태가 있는지 확인
+                        query_check = "SELECT 1 FROM TR_SIGNAL_INFO WHERE tr_tp = 'B' AND prd_nm = %s AND tr_state = '02' LIMIT 1"
+                        cur.execute(query_check, (prd_nm,))
+                        exists = cur.fetchone()
+
+                        if exists:  # 기존 신호가 존재할 때만 실행
+                            # INSERT 실행 후 ID 가져오기
+                            query_insert = """
+                                INSERT INTO TR_SIGNAL_INFO (
+                                    prd_nm, tr_tp, tr_dtm, tr_state, tr_price, signal_name, regr_id, reg_date, chgr_id, chg_date, support_price, regist_price, tr_count
+                                ) 
+                                SELECT
+                                    prd_nm, tr_tp, %s, '02', %s, signal_name, 'AUTO_SIGNAL', %s, 'AUTO_SIGNAL', %s, %s,
+                                    CASE WHEN %s < tr_price THEN tr_price ELSE regist_price END, tr_count + 1                                    
+                                FROM TR_SIGNAL_INFO 
+                                WHERE id = %s
+                                RETURNING id
+                            """
+
+                            cur.execute(query_insert, (
+                                datetime.now().strftime('%Y%m%d%H%M%S'),  # tr_dtm
+                                current_price,  # tr_price
+                                datetime.now(),  # reg_date
+                                datetime.now(),  # chg_date
+                                signal_price,  # support_price
+                                current_price,  # regist_price
+                                existing_id  # 기존 신호 ID
+                            ))
+
+                            result = cur.fetchone()
+                            if result:
+                                new_signal_id = result[0]  # 반환된 ID 저장
+
+                                # UPDATE 실행
+                                query_update = """
+                                    UPDATE TR_SIGNAL_INFO 
+                                    SET tr_state = '23', 
+                                        u_tr_price = %s, 
+                                        chg_date = %s
+                                    WHERE id = %s
+                                    RETURNING TRUE
+                                """
+                                cur.execute(query_update, (current_price, datetime.now(), existing_id))
+                                update_result = cur.fetchone()
+
+                                if update_result:
+                                    # 추가 업데이트 실행
+                                    query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
+                                    cur.execute(query3, (datetime.now(), prd_nm))
+
+                                    conn.commit()
+                                    
+                                    formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                    message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                                    print(message)
+                                    send_slack_message("#매매신호", message)
+                            
+                    return "exists"        
         
         else:
             
@@ -456,7 +450,7 @@ def analyze_data(trend_type):
             signal_sell = "01"
             
             # 매매신호정보 조회
-            query1 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' order by tr_dtm desc"
+            query1 = "SELECT id, tr_dtm, tr_price, tr_volume, chg_date FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' order by tr_dtm desc"
             cur01.execute(query1, (i, ))  
             result_01 = cur01.fetchall()
             
@@ -482,7 +476,7 @@ def analyze_data(trend_type):
                         update_tr_state(conn, '11', result[0])                
 
             # 매매신호정보 조회
-            query2 = "SELECT id, tr_dtm, tr_price, tr_volume FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' order by tr_dtm desc"
+            query2 = "SELECT id, tr_dtm, tr_price, tr_volume, chg_date FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' order by tr_dtm desc"
             cur02.execute(query2, (i, ))  
             result_02 = cur02.fetchall()
             
