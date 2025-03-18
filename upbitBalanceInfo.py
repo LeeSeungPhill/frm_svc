@@ -73,48 +73,6 @@ def analyze_data(user, market, trend_type):
         python_executable = "python3"
         script_path = "/Users/phillseungkorea/Documents/frm_batch_svc/main.py"
 
-    cur031 = conn.cursor()
-    result_31 = []
-
-    # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매수 대상)
-    query31 = """
-                SELECT A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, COALESCE(A.tr_count, 1), B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
-                FROM TR_SIGNAL_INFO A
-                LEFT OUTER JOIN TRADE_PLAN B
-                ON split_part(A.prd_nm, '/', 1) = substr(B.prd_nm, 5) AND B.plan_tp = 'B1'
-                WHERE A.signal_name = %s
-                AND A.tr_tp = 'B'
-                AND A.tr_state = '02'
-                AND A.buy_order_no IS NULL
-                ORDER BY A.tr_dtm DESC
-            """
-    param1 = (f"TrendLine-{trend_type}",)
-    cur031.execute(query31, param1)  
-    result_31 = cur031.fetchall()
-
-    trade_list = []
-
-    if result_31 is not None:
-        for item in result_31:
-            trade_info = {
-                "tr_tp": "B",
-                "tr_state": "02",
-                "id": item[0],
-                "prd_nm": item[1],
-                "tr_price": item[2],
-                "support_price": item[10] if item[10] is not None else item[3],
-                "regist_price": item[11] if item[11] is not None else item[4],
-                "tr_count": item[5],
-                "buy_order_no": None,
-                "plan_amt": 1000000  # 매매예정금액
-            }
-            trade_list.append(trade_info)
-
-        trade_list_json = json.dumps(trade_list, default=decimal_converter)
-        safe_trade_list_json = shlex.quote(trade_list_json)    
-        
-        os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
-
     cur01 = conn.cursor()
 
     # 고객명에 의한 고객정보 조회
@@ -136,6 +94,52 @@ def analyze_data(user, market, trend_type):
 
     if len(cust_info) > 0:
     
+        # 매매관리정보 주문대기 대상 open_order 호출 매매관리정보 현행화
+        
+        cur031 = conn.cursor()
+        result_31 = []
+
+        # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매수 대상)
+        query31 = """
+                    SELECT A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, 
+                    (SELECT CASE WHEN count(*) = 0 THEN 1 ELSE count(*) END FROM trade_mng WHERE cust_num = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1) AND ord_state = 'done' AND ord_tp = '01')
+                    , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                    FROM TR_SIGNAL_INFO A
+                    LEFT OUTER JOIN TRADE_PLAN B
+                    ON split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'B1'
+                    WHERE A.signal_name = %s
+                    AND A.tr_tp = 'B'
+                    AND A.tr_state = '02'
+                    AND A.buy_order_no IS NULL
+                    ORDER BY A.tr_dtm DESC
+                """
+        param1 = (cust_info['cust_num'], f"TrendLine-{trend_type}",)
+        cur031.execute(query31, param1)  
+        result_31 = cur031.fetchall()
+
+        trade_list = []
+
+        if result_31 is not None:
+            for item in result_31:
+                trade_info = {
+                    "tr_tp": "B",
+                    "tr_state": "02",
+                    "id": item[0],
+                    "prd_nm": item[1],
+                    "tr_price": item[2],
+                    "support_price": item[10] if item[10] is not None else item[3],
+                    "regist_price": item[11] if item[11] is not None else item[4],
+                    "tr_count": item[5],
+                    "buy_order_no": None,
+                    "plan_amt": 1000000  # 매매예정금액
+                }
+                trade_list.append(trade_info)
+
+            trade_list_json = json.dumps(trade_list, default=decimal_converter)
+            safe_trade_list_json = shlex.quote(trade_list_json)    
+            
+            os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
+
         user_id = "BALANCE_AUTO"
         
         cur02 = conn.cursor()
@@ -224,7 +228,9 @@ def analyze_data(user, market, trend_type):
                             SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'B' AND TR_STATE = '22' and signal_name = %s AND SELL_ORDER_NO IS null
                         )
                         SELECT 
-                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, COALESCE(A.tr_count, 1), B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, 
+                            (SELECT CASE WHEN count(*) = 0 THEN 1 ELSE count(*) END FROM trade_mng WHERE cust_num = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1) AND ord_state = 'done' AND ord_tp = '02')
+                            , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
                         FROM (
                             SELECT * 
                             FROM signal_info 
@@ -233,9 +239,9 @@ def analyze_data(user, market, trend_type):
                             LIMIT 1  -- 최신 데이터 한 건만 가져옴
                         ) A
                         LEFT OUTER JOIN TRADE_PLAN B
-                        ON split_part(A.prd_nm, '/', 1) = substr(B.prd_nm, 5) AND B.plan_tp = 'S1'
+                        ON split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1'
                     """
-                    param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", item['currency'],)
+                    param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], item['currency'],)
                     cur032.execute(query32, param2)  
                     result_32 = cur032.fetchall()
 
@@ -267,8 +273,44 @@ def analyze_data(user, market, trend_type):
                         
                         os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
 
-                    # 최종 주문관리정보 매수 체결건 대상의 주문가 5% 이상 수익여부 체크 -> 조건해당시 해당 주문의 절반 매도 주문
+                    cur033 = conn.cursor()
+                    result_33 = []    
 
+                    # 잔고정보 조회 : last_order_no, last_buy_count, last_sell_count, loss_price, target_price 설정
+                    query33 = """
+                        SELECT 
+                            (SELECT ord_no FROM trade_mng WHERE cust_num = A.cust_num AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2) AND ord_state = 'done' ORDER BY ord_dtm DESC LIMIT 1) AS last_order_no,
+                            (SELECT count(*) FROM trade_mng WHERE cust_num = A.cust_num AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2) AND ord_state = 'done' AND ord_tp = '01') AS last_buy_count,
+                            (SELECT count(*) FROM trade_mng WHERE cust_num = A.cust_num AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2) AND ord_state = 'done' AND ord_tp = '02') AS last_sell_count,
+                            COALESCE(B.support_price, 0) AS loss_price,
+                            COALESCE(B.regist_price, 0) AS target_price
+                        FROM balance_info A
+                        LEFT OUTER JOIN TRADE_PLAN B
+                        ON split_part(A.prd_nm, '-', 2) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1'
+                        WHERE A.cust_num = %s
+                        AND split_part(A.prd_nm, '-', 2) = %s 
+                    """
+                    param3 = (cust_info['cust_num'], item['currency'],)
+                    cur033.execute(query33, param3)  
+                    result_33 = cur033.fetchall()
+                    
+                    last_order_no = None
+                    last_buy_count = 0
+                    last_sell_count = 0
+                    loss_price = 0
+                    target_price = 0
+
+                    if result_33 is not None:
+                        for balance_info in result_33:
+                            last_order_no = balance_info[0]
+                            last_buy_count = balance_info[1]
+                            last_sell_count = balance_info[2]
+                            loss_price = balance_info[3]
+                            target_price = balance_info[4]
+
+                    
+                    # 최종 주문관리정보 매수 체결건 대상의 주문가 5% 이상 수익여부 체크 -> 조건해당시 해당 주문의 절반 매도 주문
+                    # if Decimal(item["current_amt"]) >= Decimal(item["price"]) * Decimal("1.05"):
 
 
                     # 잔고정보 현행화
@@ -277,10 +319,13 @@ def analyze_data(user, market, trend_type):
                         volume,
                         amt,
                         loss_profit_rate,
+                        last_order_no,
+                        last_buy_count,
+                        last_sell_count,
                         current_price,
                         current_amt,
-                        regist_price,
-                        support_price,
+                        target_price,
+                        loss_price,
                         user_id,
                         datetime.now(),
                         cust_info['cust_num'],
@@ -294,10 +339,13 @@ def analyze_data(user, market, trend_type):
                         volume,
                         amt,
                         loss_profit_rate,
+                        last_order_no,
+                        last_buy_count,
+                        last_sell_count,
                         current_price,
                         current_amt,
-                        regist_price,
-                        support_price,
+                        target_price,
+                        loss_price,
                         'Y',
                         user_id,
                         datetime.now(),
@@ -305,7 +353,7 @@ def analyze_data(user, market, trend_type):
                         datetime.now(),
                     )
                     
-                    insert1 = "with upsert as (update balance_info set hold_price = %s, hold_volume = %s, hold_amt = %s, loss_profit_rate = %s, current_price = %s, current_amt = %s, target_price = %s, loss_price = %s, proc_yn = 'Y', chgr_id = %s, chg_date = %s where cust_num = %s and market_name = %s and prd_nm = %s returning * ) insert into balance_info(acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, hold_amt, loss_profit_rate, current_price, current_amt, target_price, loss_price, proc_yn, regr_id, reg_date, chgr_id, chg_date) select %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s where not exists(select * from upsert)"
+                    insert1 = "with upsert as (update balance_info set hold_price = %s, hold_volume = %s, hold_amt = %s, loss_profit_rate = %s, last_order_no = %s, last_buy_count = %s, last_sell_count = %s, current_price = %s, current_amt = %s, target_price = %s, loss_price = %s, proc_yn = 'Y', chgr_id = %s, chg_date = %s where cust_num = %s and market_name = %s and prd_nm = %s returning * ) insert into balance_info(acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, hold_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, target_price, loss_price, proc_yn, regr_id, reg_date, chgr_id, chg_date) select %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s where not exists(select * from upsert)"
                     cur03.execute(insert1, ins_param1)
                     conn.commit()
                     cur03.close()
@@ -325,7 +373,10 @@ def analyze_data(user, market, trend_type):
         delete1 = """DELETE FROM balance_info WHERE proc_yn = 'N' AND cust_num = %s """
         cur04.execute(delete1, del_param1)
         conn.commit()
-        cur04.close()              
+        cur04.close()
+
+        # 잔고정보 미존재 대상 매매관리정보 백업 처리
+                       
     
     cur01.close()
     conn.close()
