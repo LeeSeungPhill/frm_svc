@@ -29,10 +29,10 @@ client = slack_sdk.WebClient(token=SLACK_TOKEN)
 sent_messages = set()
 
 # 데이터베이스 연결 정보
-DB_NAME = "postgres"
+DB_NAME = "universe"
 DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
-DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
 def get_trend_line(dates, prices):
@@ -656,12 +656,12 @@ def analyze_data(trend_type):
         print("에러 발생:", e)
 
 # 1분마다 실행 설정
-schedule.every(1).minutes.do(analyze_data, 'mid')     
+schedule.every(1).minutes.do(analyze_data, 'long')     
 
 # 실행
 if __name__ == "__main__":
     print("1분마다 분석 작업을 실행합니다...")
-    analyze_data('mid')  # 첫 실행
+    analyze_data('long')  # 첫 실행
     while True:
         schedule.run_pending()
         time.sleep(1)
