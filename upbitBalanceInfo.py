@@ -243,58 +243,64 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
 
 def proc_trade_mng_hist(cust_num, market_name, conn):
 
-    cur01 = conn.cursor()
-    cur02 = conn.cursor()
+    try:
+        cur01 = conn.cursor()
+        cur02 = conn.cursor()
 
-    param1 = (
-        cust_num,
-        market_name
-    )
+        param1 = (cust_num, market_name)
 
-    # 기존 데이터 백업
-    insert1 = """
-        INSERT INTO trade_mng_hist (
-            cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
-            cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
-        )
-        SELECT 
-            cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
-            cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
-        FROM trade_mng A
-        WHERE A.cust_num = %s
-        AND A.market_name = %s
-        AND A.ord_state NOT IN ('wait')                          
-        AND NOT EXISTS (
-            SELECT
-                1
-            FROM balance_info
-            WHERE cust_num = A.cust_num
-            AND market_name = A.market_name
-            AND prd_nm = A.prd_nm
-        )
-    """
-    result1 = cur01.execute(insert1, param1)
-    conn.commit()
-    cur01.close()    
-
-    # 백업이 성공한 경우에만 삭제
-    if result1.rowcount > 0:
-        delete1 = """
-            DELETE FROM trade_mng A
-            WHERE A.cust_num = %s 
-            AND A.market_name = %se
-            AND A.ord_state NOT IN ('wait')
+        # 기존 데이터 백업
+        insert1 = """
+            INSERT INTO trade_mng_hist (
+                cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
+                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
+            )
+            SELECT 
+                cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
+                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
+            FROM trade_mng A
+            WHERE A.cust_num = %s
+            AND A.market_name = %s
+            AND A.ord_state NOT IN ('wait')                          
             AND NOT EXISTS (
-                SELECT
-                    1
+                SELECT 1
                 FROM balance_info
                 WHERE cust_num = A.cust_num
                 AND market_name = A.market_name
                 AND prd_nm = A.prd_nm
             )
         """
-        cur02.execute(delete1, param1)
-        conn.commit()
+        cur01.execute(insert1, param1)
+        
+        rows_affected = cur01.rowcount
+        if rows_affected > 0:
+            conn.commit()
+        cur01.close()
+
+        # 백업이 성공한 경우에만 삭제
+        if rows_affected > 0:
+            delete1 = """
+                DELETE FROM trade_mng A
+                WHERE A.cust_num = %s 
+                AND A.market_name = %s
+                AND A.ord_state NOT IN ('wait')
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM balance_info
+                    WHERE cust_num = A.cust_num
+                    AND market_name = A.market_name
+                    AND prd_nm = A.prd_nm
+                )
+            """
+            cur02.execute(delete1, param1)
+            conn.commit()
+
+    except Exception as e:
+        conn.rollback()  # 오류 발생 시 롤백
+        print(f"Error: {e}")
+
+    finally:
+        cur01.close()
         cur02.close()
 
 def analyze_data(user, market, trend_type):
