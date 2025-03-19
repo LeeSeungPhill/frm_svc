@@ -253,9 +253,9 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                 formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 existing_id = result[0]
                 last_dtm = result[1]
-                pre_one_hour_dtm = datetime.now() - timedelta(hours=1)
+                pre_sixteen_hour_dtm = datetime.now() - timedelta(hours=16)
 
-                if last_dtm < pre_one_hour_dtm:
+                if last_dtm < pre_sixteen_hour_dtm:
 
                     # 추가 매매하기 위해 기존 매매정보 기준 신규 매매정보 생성 및 기존 매매정보 변경 처리(tr_state ='23')
                     if tr_tp == "B":
@@ -532,7 +532,7 @@ def analyze_data(trend_type):
             # 결과 출력
             print(f"{i} 분석 종료 시간: {end_time}")
 
-            one_hour_ago = end_time - timedelta(hours=1)
+            sixteen_hour_ago = end_time - timedelta(hours=16)
 
             for _, row_15m in df_4h.iterrows():
             # for _, row_15m in df_1h.iterrows():
@@ -565,7 +565,7 @@ def analyze_data(trend_type):
                 # trend_info = check_trend(df_1h, current_date, current_price, current_volume, prev_volume, trend_type)
                 # trend_info = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
 
-                if timestamp >= one_hour_ago:
+                if timestamp >= sixteen_hour_ago:
 
                     # 거래량 급등(거래량이 20일 거래량 평균보다 150% 이상) 인 경우 
                     # if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
