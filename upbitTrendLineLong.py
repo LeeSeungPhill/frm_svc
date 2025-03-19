@@ -305,7 +305,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
 
                             message = f"{prd_nm} 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                             print(message)
-                            # send_slack_message("#매매신호", message)
+                            send_slack_message("#매매신호", message)
                     
                     else:
                         
@@ -364,7 +364,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                     formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                     message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                                     print(message)
-                                    # send_slack_message("#매매신호", message)
+                                    send_slack_message("#매매신호", message)
                             
                     return "exists"        
         
@@ -425,9 +425,9 @@ def analyze_data(trend_type):
             # df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
             # 4시간봉 데이터 가져오기
-            # ohlcv_4h = fetch_ohlcv_with_retry(exchange, i, timeframe_4h)
-            # df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            # df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+            ohlcv_4h = fetch_ohlcv_with_retry(exchange, i, timeframe_4h)
+            df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
             
             # 1시간봉 데이터 가져오기
             # ohlcv_1h = fetch_ohlcv_with_retry(exchange, i, timeframe_1h)
@@ -435,18 +435,18 @@ def analyze_data(trend_type):
             # df_1h['timestamp'] = pd.to_datetime(df_1h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
             
             # 15분봉 데이터 가져오기
-            ohlcv_15m = fetch_ohlcv_with_retry(exchange, i, timeframe_15m)
-            df_15m = pd.DataFrame(ohlcv_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+            # ohlcv_15m = fetch_ohlcv_with_retry(exchange, i, timeframe_15m)
+            # df_15m = pd.DataFrame(ohlcv_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            # df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
             # 고점/저점 계산, 추세 판단, 이동평균선 및 거래량 급등 계산
-            # df_4h = calculate_peaks_and_troughs(df_4h)
+            df_4h = calculate_peaks_and_troughs(df_4h)
             # df_1h = calculate_peaks_and_troughs(df_1h)
-            df_15m = calculate_peaks_and_troughs(df_15m)
+            # df_15m = calculate_peaks_and_troughs(df_15m)
             # df_15m = determine_trends(df_15m)
-            # df_4h = calculate_indicators(df_4h)
+            df_4h = calculate_indicators(df_4h)
             # df_1h = calculate_indicators(df_1h)
-            df_15m = calculate_indicators(df_15m)
+            # df_15m = calculate_indicators(df_15m)
             
             # PostgreSQL 데이터베이스에 연결
             conn = psycopg2.connect(
@@ -473,23 +473,23 @@ def analyze_data(trend_type):
             if result_01:
                 for idx, result in enumerate(result_01):             
                     # 매매신호정보 첫번째 대상의 돌파가보다 현재가가 크고, 거래량보다 현재 거래량이 더 큰 경우
-                    # if idx == 0 and float(df_4h['close'].iloc[-1]) >= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                    if idx == 0 and float(df_4h['close'].iloc[-1]) >= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                     # if idx == 0 and float(df_1h['close'].iloc[-1]) >= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
-                    if idx == 0 and float(df_15m['close'].iloc[-1]) >= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                    # if idx == 0 and float(df_15m['close'].iloc[-1]) >= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                        message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
-                        message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                        # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
                         
-                        # result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], i, 'B')
+                        result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], i, 'B')
                         # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'B')
-                        result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B')
+                        # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B')
 
                         if result == "new":
                             signal_buy = "02"
                             # Slack 메시지 전송
-                            # send_slack_message("#매매신호", message)
+                            send_slack_message("#매매신호", message)
                         elif result == "exists":
                             signal_buy = "02"   
                         
@@ -505,23 +505,23 @@ def analyze_data(trend_type):
             if result_02:
                 for idx, result in enumerate(result_02):    
                     # 매매신호정보 첫번째 대상의 이탈가보다 현재가가 작고, 거래량보다 현재 거래량이 더 큰 경우
-                    # if idx == 0 and float(df_4h['close'].iloc[-1]) <= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                    if idx == 0 and float(df_4h['close'].iloc[-1]) <= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                     # if idx == 0 and float(df_1h['close'].iloc[-1]) <= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
-                    if idx == 0 and float(df_15m['close'].iloc[-1]) <= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                    # if idx == 0 and float(df_15m['close'].iloc[-1]) <= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                        message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
-                        message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                        # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
                         
-                        # result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], i, 'S')
+                        result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], i, 'S')
                         # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'S')
-                        result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S')
+                        # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S')
                         
                         if result == "new":
                             signal_sell = "02"
                             # Slack 메시지 전송
-                            # send_slack_message("#매매신호", message)
+                            send_slack_message("#매매신호", message)
                         elif result == "exists":
                             signal_sell = "02"   
                         
@@ -534,9 +534,9 @@ def analyze_data(trend_type):
 
             one_hour_ago = end_time - timedelta(hours=1)
 
-            # for _, row_15m in df_4h.iterrows():
+            for _, row_15m in df_4h.iterrows():
             # for _, row_15m in df_1h.iterrows():
-            for _, row_15m in df_15m.iterrows():        
+            # for _, row_15m in df_15m.iterrows():        
                 timestamp = row_15m['timestamp']
                 close = row_15m['close']
                 h_close = row_15m['high']
@@ -546,24 +546,24 @@ def analyze_data(trend_type):
                 volume = row_15m['volume']
                 ma_200 = row_15m['200MA']
                 
-                # current_date = df_4h.iloc[-1]['timestamp']
-                # current_price = df_4h.iloc[-1]['close']
-                # current_volume = df_4h.iloc[-1]['volume']
-                # prev_volume = df_4h.iloc[-2]['volume']
+                current_date = df_4h.iloc[-1]['timestamp']
+                current_price = df_4h.iloc[-1]['close']
+                current_volume = df_4h.iloc[-1]['volume']
+                prev_volume = df_4h.iloc[-2]['volume']
                 
                 # current_date = df_1h.iloc[-1]['timestamp']
                 # current_price = df_1h.iloc[-1]['close']
                 # current_volume = df_1h.iloc[-1]['volume']
                 # prev_volume = df_1h.iloc[-2]['volume']
 
-                current_date = df_15m.iloc[-1]['timestamp']
-                current_price = df_15m.iloc[-1]['close']
-                current_volume = df_15m.iloc[-1]['volume']
-                prev_volume = df_15m.iloc[-2]['volume']
+                # current_date = df_15m.iloc[-1]['timestamp']
+                # current_price = df_15m.iloc[-1]['close']
+                # current_volume = df_15m.iloc[-1]['volume']
+                # prev_volume = df_15m.iloc[-2]['volume']
 
-                # trend_info = check_trend(df_4h, current_date, current_price, current_volume, prev_volume, trend_type)
+                trend_info = check_trend(df_4h, current_date, current_price, current_volume, prev_volume, trend_type)
                 # trend_info = check_trend(df_1h, current_date, current_price, current_volume, prev_volume, trend_type)
-                trend_info = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
+                # trend_info = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
 
                 if timestamp >= one_hour_ago:
 
@@ -626,7 +626,7 @@ def analyze_data(trend_type):
                                     formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     message = f"{i} 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
                                     print(message)
-                                    # send_slack_message("#매매신호", message)
+                                    send_slack_message("#매매신호", message)
                         
                     # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
                     elif trend_info['result'] == "Turn Down" and volume_surge:
@@ -686,7 +686,7 @@ def analyze_data(trend_type):
                                     formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     message = f"{i} 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
                                     print(message)
-                                    # send_slack_message("#매매신호", message)
+                                    send_slack_message("#매매신호", message)
                         
             # 연결 종료
             cur01.close()
@@ -697,12 +697,12 @@ def analyze_data(trend_type):
         print("에러 발생:", e)
 
 # 1분마다 실행 설정
-schedule.every(1).minutes.do(analyze_data, 'short')     
+schedule.every(1).minutes.do(analyze_data, 'long')     
 
 # 실행
 if __name__ == "__main__":
     print("1분마다 분석 작업을 실행합니다...")
-    analyze_data('short')  # 첫 실행
+    analyze_data('long')  # 첫 실행
     while True:
         schedule.run_pending()
         time.sleep(1)

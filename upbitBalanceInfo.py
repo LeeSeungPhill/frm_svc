@@ -632,12 +632,12 @@ def analyze_data(user, market, trend_type):
     conn.close()
 
 # 1분마다 실행 설정
-schedule.every(1).minutes.do(analyze_data, 'phills2', 'UPBIT', 'long')        
+schedule.every(1).minutes.do(analyze_data, 'phills2', 'UPBIT', 'mid')        
 
 # 실행
 if __name__ == "__main__":
     print("1분마다 분석 작업을 실행합니다...")
-    analyze_data('phills2', 'UPBIT', 'long')  # 첫 실행
+    analyze_data('phills2', 'UPBIT', 'mid')  # 첫 실행
     while True:
         schedule.run_pending()
         time.sleep(1)
