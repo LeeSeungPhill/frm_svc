@@ -55,6 +55,248 @@ def get_order(access_key, secret_key, order_uuid):
     # print("response : ", response.json())
     return response.json()
 
+def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
+
+    cur01 = conn.cursor()
+    result_1 = []
+
+    # 매매관리정보 조회(주문대기 대상)
+    query1 = """
+                SELECT 
+                    id, prd_nm, ord_state, executed_vol, remaining_vol, ord_no
+                FROM trade_mng 
+                WHERE market_name = %s
+                AND cust_num = %s
+                AND ord_state IN ('wait' ,'watch')
+            """
+    param1 = (market_name, cust_num,)
+    cur01.execute(query1, param1)  
+    result_1 = cur01.fetchall()
+
+    order_list = []
+
+    for chk_ord in result_1 :
+        # 주문 조회
+        order_status = get_order(access_key, secret_key, chk_ord['ord_no'])
+        ord_state = order_status['state']
+
+        # 체결완료 상태인 경우
+        if ord_state == 'done':
+            if chk_ord['ord_no'] == order_status['uuid']:
+                order_param = {
+                    "ord_dtm": datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
+                    "ord_no": order_status['trades'][0]['uuid'],
+                    "prd_nm": order_status['trades'][0]['market'],
+                    "ord_tp": '01' if order_status['trades'][0]['side'] == 'bid' else '02',
+                    "ord_state": order_status['state'],
+                    "ord_price": order_status['trades'][0]['price'],
+                    "ord_vol": order_status['trades'][0]['volume'],
+                    "executed_vol": order_status['executed_volume'],
+                    "remaining_vol": order_status['remaining_volume']
+                }
+        
+                order_list.append(order_param)
+
+                # 매매관리정보 변경 처리
+                cur02 = conn.cursor()
+                upd_param1 = (
+                    datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
+                    order_status['trades'][0]['uuid'],
+                    chk_ord['ord_no'],
+                    order_status['state'],
+                    Decimal(order_status['executed_volume']),
+                    Decimal(order_status['remaining_volume']),
+                    user_id,
+                    datetime.now(),
+                    chk_ord['id']
+                )
+                
+                update1 = """UPDATE trade_mng SET 
+                                ord_dtm = %s,
+                                ord_no = %s,
+                                orgn_ord_no = %s,
+                                ord_state = %s,
+                                executed_vol = %s,
+                                remaining_vol = %s,
+                                chgr_id = %s,
+                                chg_date = %s
+                            WHERE id = %s
+                            AND ord_state = 'wait'
+                        """
+                cur02.execute(update1, upd_param1)
+                conn.commit()
+                cur02.close()
+        
+        # 취소 상태인 경우
+        elif ord_state == 'cancel':
+            if chk_ord['ord_no'] == order_status['uuid']:
+                order_param = {
+                    "ord_dtm": datetime.fromisoformat(order_status['created_at']).strftime("%Y%m%d%H%M%S"),
+                    "ord_no": order_status['uuid'],
+                    "prd_nm": order_status['market'],
+                    "ord_tp": '01' if order_status['side'] == 'bid' else '02',
+                    "ord_state": order_status['state'],
+                    "ord_price": order_status['price'],
+                    "ord_vol": order_status['volume'],
+                    "executed_vol": order_status['executed_volume'],
+                    "remaining_vol": order_status['remaining_volume']
+                }
+        
+                order_list.append(order_param)
+
+                # 매매관리정보 변경 처리
+                cur02 = conn.cursor()
+                upd_param1 = (
+                    order_status['state'],
+                    Decimal(order_status['executed_volume']),
+                    Decimal(order_status['remaining_volume']),
+                    user_id,
+                    datetime.now(),
+                    chk_ord['id']
+                )
+                
+                update1 = """UPDATE trade_mng SET 
+                                ord_state = %s,
+                                executed_vol = %s,
+                                remaining_vol = %s,
+                                chgr_id = %s,
+                                chg_date = %s
+                            WHERE id = %s
+                            AND ord_state = 'wait'
+                        """
+                cur02.execute(update1, upd_param1)
+                conn.commit()
+                cur02.close()
+
+        else:
+
+            params = {
+                'market': chk_ord['prd_nm'],        # 마켓 ID
+                'states': chk_ord['ord_state'],     # 'wait', 'watch'
+            }
+
+            query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
+
+            m = hashlib.sha512()
+            m.update(query_string)
+            query_hash = m.hexdigest()
+
+            payload = {
+                'access_key': access_key,
+                'nonce': str(uuid.uuid4()),
+                'query_hash': query_hash,
+                'query_hash_alg': 'SHA512',
+            }
+
+            jwt_token = jwt.encode(payload, secret_key)
+            authorization = 'Bearer {}'.format(jwt_token)
+            headers = {
+                'Authorization': authorization,
+            }
+            # 체결 대기 주문 조회
+            raw_order_list = requests.get(api_url + "/v1/orders/open", params=params, headers=headers).json()
+
+            if raw_order_list is not None:
+                for item in raw_order_list:
+                    if chk_ord['ord_no'] == item['uuid']:
+
+                        order_param = {
+                                "ord_dtm": datetime.fromisoformat(item['created_at']).strftime("%Y%m%d%H%M%S"),
+                                "ord_no": item['uuid'],
+                                "prd_nm": item['market'],
+                                "ord_tp": '01' if item['side'] == 'bid' else '02',
+                                "ord_state": item['state'],
+                                "ord_price": item['price'],
+                                "ord_vol": item['volume'],
+                                "executed_vol": item['executed_volume'],
+                                "remaining_vol": item['remaining_volume']
+                            }
+                
+                        order_list.append(order_param)
+
+                        if chk_ord['remaining_vol'] != Decimal(item['remaining_volume']) or chk_ord['executed_vol'] != Decimal(item['executed_volume']):
+
+                            # 매매관리정보 변경 처리
+                            cur02 = conn.cursor()
+                            upd_param1 = (
+                                order_status['state'],
+                                Decimal(order_status['executed_volume']),
+                                Decimal(order_status['remaining_volume']),
+                                user_id,
+                                datetime.now(),
+                                chk_ord['id']
+                            )
+                            
+                            update1 = """UPDATE trade_mng SET 
+                                            ord_state = %s,
+                                            executed_vol = %s,
+                                            remaining_vol = %s,
+                                            chgr_id = %s,
+                                            chg_date = %s
+                                        WHERE id = %s
+                                        AND ord_state = 'wait'
+                                    """
+                            cur02.execute(update1, upd_param1)
+                            conn.commit()
+                            cur02.close()
+    cur01.close()                            
+
+def proc_trade_mng_hist(cust_num, market_name, conn):
+
+    cur01 = conn.cursor()
+    cur02 = conn.cursor()
+
+    param1 = (
+        cust_num,
+        market_name
+    )
+
+    # 기존 데이터 백업
+    insert1 = """
+        INSERT INTO trade_mng_hist (
+            cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
+            cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
+        )
+        SELECT 
+            cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
+            cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
+        FROM trade_mng A
+        WHERE A.cust_num = %s
+        AND A.market_name = %s
+        AND A.ord_state NOT IN ('wait')                          
+        AND NOT EXISTS (
+            SELECT
+                1
+            FROM balance_info
+            WHERE cust_num = A.cust_num
+            AND market_name = A.market_name
+            AND prd_nm = A.prd_nm
+        )
+    """
+    result1 = cur01.execute(insert1, param1)
+    conn.commit()
+    cur01.close()    
+
+    # 백업이 성공한 경우에만 삭제
+    if result1.rowcount > 0:
+        delete1 = """
+            DELETE FROM trade_mng A
+            WHERE A.cust_num = %s 
+            AND A.market_name = %se
+            AND A.ord_state NOT IN ('wait')
+            AND NOT EXISTS (
+                SELECT
+                    1
+                FROM balance_info
+                WHERE cust_num = A.cust_num
+                AND market_name = A.market_name
+                AND prd_nm = A.prd_nm
+            )
+        """
+        cur02.execute(delete1, param1)
+        conn.commit()
+        cur02.close()
+
 def analyze_data(user, market, trend_type):
     
     # PostgreSQL 데이터베이스에 연결
@@ -94,7 +336,10 @@ def analyze_data(user, market, trend_type):
 
     if len(cust_info) > 0:
     
-        # 매매관리정보 주문대기 대상 open_order 호출 매매관리정보 현행화
+        user_id = "BALANCE_AUTO"
+
+        # 매매관리정보 주문대기 대상 매매관리정보 현행화
+        open_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], cust_info['market_name'], user_id, conn)
         
         cur031 = conn.cursor()
         result_31 = []
@@ -140,8 +385,6 @@ def analyze_data(user, market, trend_type):
             
             os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
 
-        user_id = "BALANCE_AUTO"
-        
         cur02 = conn.cursor()
         upd_param1 = (
             user_id,   # chgr_id
@@ -229,8 +472,9 @@ def analyze_data(user, market, trend_type):
                         )
                         SELECT 
                             A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, 
-                            (SELECT CASE WHEN count(*) = 0 THEN 1 ELSE count(*) END FROM trade_mng WHERE cust_num = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1) AND ord_state = 'done' AND ord_tp = '02')
-                            , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                            (SELECT count(*) FROM trade_mng WHERE cust_num = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1) AND ord_state = 'done' AND ord_tp = '01'),
+                            (SELECT count(*) FROM trade_mng WHERE cust_num = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1) AND ord_state = 'done' AND ord_tp = '02'),
+                            B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
                         FROM (
                             SELECT * 
                             FROM signal_info 
@@ -241,7 +485,7 @@ def analyze_data(user, market, trend_type):
                         LEFT OUTER JOIN TRADE_PLAN B
                         ON split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1'
                     """
-                    param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], item['currency'],)
+                    param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], cust_info['cust_num'], item['currency'],)
                     cur032.execute(query32, param2)  
                     result_32 = cur032.fetchall()
 
@@ -262,7 +506,7 @@ def analyze_data(user, market, trend_type):
                                 "tr_price": trade_signal[2],
                                 "support_price": support_price,
                                 "regist_price": regist_price,
-                                "tr_count": trade_signal[5],
+                                "tr_count": int(trade_signal[5]) - int(trade_signal[6]),    # 매수주문건수 - 매도주문건수
                                 "sell_order_no": None,
                                 "plan_amt": 1000000  # 매매예정금액
                             }
@@ -376,7 +620,7 @@ def analyze_data(user, market, trend_type):
         cur04.close()
 
         # 잔고정보 미존재 대상 매매관리정보 백업 처리
-                       
+        proc_trade_mng_hist(cust_info['cust_num'], cust_info['market_name'], conn)
     
     cur01.close()
     conn.close()
