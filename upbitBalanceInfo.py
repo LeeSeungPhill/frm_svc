@@ -359,7 +359,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                         , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
                         FROM TR_SIGNAL_INFO A
                         LEFT OUTER JOIN TRADE_PLAN B
-                        ON split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'B1' AND B.plan_execute = 'N' AND B.market_name = %s
+                        ON B.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'B1' AND B.plan_execute = 'N' AND B.market_name = %s
                         WHERE A.signal_name = %s
                         AND A.tr_tp = 'B'
                         AND A.tr_state = '02'
@@ -367,7 +367,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                         AND split_part(A.prd_nm, '/', 1) IN %s
                         ORDER BY A.tr_dtm DESC
                     """
-            param1 = (cust_info['cust_num'], market, market, f"TrendLine-{trend_type}", prd_list)
+            param1 = (cust_info['cust_num'], market, cust_info['cust_nm'], market, f"TrendLine-{trend_type}", prd_list)
             cur031.execute(query31, param1)  
             result_31 = cur031.fetchall()
 
@@ -399,7 +399,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
 
             # 매매예정정보 조회(주문정보 미처리 매수 대상)
             query31 = """
-                    SELECT A.id, A.plan_dtm, A.prd_nm, A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
+                    SELECT A.id, A.plan_dtm, split_part(A.prd_nm, '-', 2), A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
                         (SELECT CASE WHEN count(*) = 0 THEN 1 ELSE count(*) END FROM trade_mng WHERE cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2) AND ord_state = 'done' AND ord_tp = '01')
                     FROM TRADE_PLAN A
                     WHERE A.cust_nm = %s
@@ -421,7 +421,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                         "markets": item[2]
                     }
 
-                    current_price = 0
+                    cu_price = 0
  
                     # 현재가 정보
                     res = requests.get(api_url + "/v1/ticker", params=params).json()
@@ -434,10 +434,10 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                         # print(item['currency'])
 
                     else:
-                        current_price = float(res[0]['trade_price'])    
+                        cu_price = float(res[0]['trade_price'])    
 
                         # 현재가가 매매예정가를 돌파한 경우 매매주문 호출
-                        if current_price > item[3]:
+                        if cu_price > item[3]:
 
                             trade_info = {
                                 "tr_tp": "B",
@@ -562,9 +562,9 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                                 LIMIT 1  -- 최신 데이터 한 건만 가져옴
                             ) A
                             LEFT OUTER JOIN TRADE_PLAN B
-                            ON split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1' AND B.plan_execute = 'N' AND B.market_name = %s
+                            ON B.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1' AND B.plan_execute = 'N' AND B.market_name = %s
                         """
-                        param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], market, cust_info['cust_num'], market, item['currency'], market)
+                        param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], market, cust_info['cust_num'], market, item['currency'], cust_info['cust_nm'], market)
                         cur032.execute(query32, param2)  
                         result_32 = cur032.fetchall()
 
@@ -601,7 +601,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
 
                         # 매매예정정보 조회(주문정보 미처리 매수 대상)
                         query32 = """
-                                SELECT A.id, A.plan_dtm, A.prd_nm, A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
+                                SELECT A.id, A.plan_dtm, split_part(A.prd_nm, '-', 2), A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
                                     (SELECT count(*) FROM trade_mng WHERE cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2) AND ord_state = 'done' AND ord_tp = '01'),
                                     (SELECT count(*) FROM trade_mng WHERE cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2) AND ord_state = 'done' AND ord_tp = '02')
                                 FROM TRADE_PLAN A
@@ -624,7 +624,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                                     "markets": trade_signal[2]
                                 }
 
-                                current_price = 0
+                                cu_price = 0
             
                                 # 현재가 정보
                                 res = requests.get(api_url + "/v1/ticker", params=params).json()
@@ -637,10 +637,10 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                                     # print(item['currency'])
 
                                 else:
-                                    current_price = float(res[0]['trade_price'])    
+                                    cu_price = float(res[0]['trade_price'])    
 
                                     # 현재가가 매매예정가를 돌파한 경우 매매주문 호출
-                                    if current_price > trade_signal[3]:
+                                    if cu_price > trade_signal[3]:
 
                                         trade_info = {
                                             "tr_tp": "S",
@@ -681,11 +681,11 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                             COALESCE(B.regist_price, 0) AS target_price
                         FROM balance_info A
                         LEFT OUTER JOIN TRADE_PLAN B
-                        ON split_part(A.prd_nm, '-', 2) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1' AND B.plan_execute = 'N'
+                        ON B.cust_nm = %s AND split_part(A.prd_nm, '-', 2) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1' AND B.plan_execute = 'N'
                         WHERE A.cust_num = %s
                         AND split_part(A.prd_nm, '-', 2) = %s 
                     """
-                    param3 = (market, market, market, cust_info['cust_num'], item['currency'],)
+                    param3 = (market, market, market, cust_info['cust_nm'], cust_info['cust_num'], item['currency'],)
                     cur033.execute(query33, param3)  
                     result_33 = cur033.fetchall()
                     
@@ -720,11 +720,11 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                         datetime.now(),
                         cust_info['cust_num'],
                         cust_info['market_name'],
-                        params['markets'],
+                        "KRW-"+item['currency'],
                         cust_info['acct_no'],
                         cust_info['cust_num'],
                         cust_info['market_name'],
-                        params['markets'],
+                        "KRW-"+item['currency'],
                         price,
                         volume,
                         amt,
