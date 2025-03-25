@@ -773,44 +773,24 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                             last_sell_count = balance_info[2]
                             loss_price = balance_info[3]
                             target_price = balance_info[4]
+                            product = balance_info[5]
+                            plan_id = balance_info[6]
+                            
+                            product_symbol = product.split('-')[-1] if '-' in product else product
 
-                            # 매매예정정보(매도) 존재하는 경우
-                            if balance_info[6] is not None:
-                                # 현재가가 이탈가 이탈하거나 저항가 돌파한 경우 매매주문 호출
-                                if current_price < loss_price or current_price > target_price:
+                            # 매도 대상의 보유 상품이 존재할 경우
+                            if product_symbol in prd_list:
+                            
+                                # 매매예정정보(매도) 존재하는 경우
+                                if plan_id is not None:
+                                    # 현재가가 이탈가 이탈하거나 저항가 돌파한 경우 매매주문 호출
+                                    if current_price < loss_price or current_price > target_price:
 
-                                    trade_info = {
-                                        "tr_tp": "S",
-                                        "tr_state": "02",
-                                        "id": balance_info[6],
-                                        "prd_nm": balance_info[5],
-                                        "tr_price": current_price,
-                                        "support_price": loss_price,
-                                        "regist_price": target_price,
-                                        "tr_count": last_sell_count + 1 if last_sell_count > 0 else 1,    # 매도주문건수
-                                        "sell_order_no": None,
-                                        "plan_amt": plan_amt,  # 매매예정금액
-                                        "trade_source": "PLAN"
-                                    }
-                                    trade_list.append(trade_info)
-
-                            else:
-                                # 매도 완료 존재한 경우
-                                if last_sell_count > 0:
-                                    if trend_type == "long":
-                                        in_minutes = "240"
-                                    elif trend_type == "mid":
-                                        in_minutes = "60"
-                                    else:
-                                        in_minutes = "15"
-
-                                    # 현재 분봉 종가가 이전 분봉 저가를 이탈했는지와 이전 분봉의 거래량보다 현재 분봉의 거래량이 큰 경우 체크
-                                    if candle_minutes_info(balance_info[5], in_minutes):
                                         trade_info = {
                                             "tr_tp": "S",
                                             "tr_state": "02",
-                                            "id": balance_info[6] if balance_info[6] is not None else None,
-                                            "prd_nm": balance_info[5],
+                                            "id": plan_id,
+                                            "prd_nm": product,
                                             "tr_price": current_price,
                                             "support_price": loss_price,
                                             "regist_price": target_price,
@@ -822,54 +802,81 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
                                         trade_list.append(trade_info)
 
                                 else:
+                                    # 매도 완료 존재한 경우
+                                    if last_sell_count > 0:
+                                        if trend_type == "long":
+                                            in_minutes = "240"
+                                        elif trend_type == "mid":
+                                            in_minutes = "60"
+                                        else:
+                                            in_minutes = "15"
 
-                                    # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매도 대상)
-                                    query32 = """
-                                        WITH signal_info AS (
-                                            SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'S' AND TR_STATE = '02' and signal_name = %s AND SELL_ORDER_NO IS null
-                                            UNION
-                                            SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'B' AND TR_STATE = '22' and signal_name = %s AND SELL_ORDER_NO IS null
-                                        )
-                                        SELECT 
-                                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, 
-                                            (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2))
-                                            , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
-                                        FROM (
-                                            SELECT * 
-                                            FROM signal_info 
-                                            WHERE split_part(prd_nm, '/', 1) = %s 
-                                            ORDER BY tr_dtm DESC 
-                                            LIMIT 1  -- 최신 데이터 한 건만 가져옴
-                                        ) A
-                                        LEFT OUTER JOIN TRADE_PLAN B
-                                        ON B.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1' AND B.plan_execute = 'N' AND B.market_name = %s
-                                    """
-                                    param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], market, item['currency'], cust_info['cust_nm'], market)
-                                    cur032.execute(query32, param2)  
-                                    result_32 = cur032.fetchall()
-
-                                    support_price = 0
-                                    regist_price = 0
-
-                                    if len(result_32) > 0:
-                                        for trade_signal in result_32:
-                                            support_price = trade_signal[10] if trade_signal[10] is not None else trade_signal[3]
-                                            regist_price = trade_signal[11] if trade_signal[11] is not None else trade_signal[4]
-                                            
+                                        # 현재 분봉 종가가 이전 분봉 저가를 이탈했는지와 이전 분봉의 거래량보다 현재 분봉의 거래량이 큰 경우 체크
+                                        if candle_minutes_info(product, in_minutes):
                                             trade_info = {
                                                 "tr_tp": "S",
                                                 "tr_state": "02",
-                                                "id": trade_signal[0],
-                                                "prd_nm": trade_signal[1],
-                                                "tr_price": trade_signal[2],
-                                                "support_price": support_price,
-                                                "regist_price": regist_price,
-                                                "tr_count": trade_signal[5],    # 매도주문건수
+                                                "id": plan_id if plan_id is not None else None,
+                                                "prd_nm": product,
+                                                "tr_price": current_price,
+                                                "support_price": loss_price,
+                                                "regist_price": target_price,
+                                                "tr_count": last_sell_count + 1 if last_sell_count > 0 else 1,    # 매도주문건수
                                                 "sell_order_no": None,
                                                 "plan_amt": plan_amt,  # 매매예정금액
-                                                "trade_source": "SIGNAL"
+                                                "trade_source": "PLAN"
                                             }
                                             trade_list.append(trade_info)
+
+                                    else:
+
+                                        # 매매신호정보 및 매매예정정보 조회(주문정보 미처리 매도 대상)
+                                        query32 = """
+                                            WITH signal_info AS (
+                                                SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'S' AND TR_STATE = '02' and signal_name = %s AND SELL_ORDER_NO IS null
+                                                UNION
+                                                SELECT id, prd_nm, tr_price, tr_dtm, support_price, regist_price, tr_count FROM TR_SIGNAL_INFO WHERE TR_TP = 'B' AND TR_STATE = '22' and signal_name = %s AND SELL_ORDER_NO IS null
+                                            )
+                                            SELECT 
+                                                A.id, split_part(A.prd_nm, '/', 1), A.tr_price, A.support_price, A.regist_price, 
+                                                (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2))
+                                                , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price
+                                            FROM (
+                                                SELECT * 
+                                                FROM signal_info 
+                                                WHERE split_part(prd_nm, '/', 1) = %s 
+                                                ORDER BY tr_dtm DESC 
+                                                LIMIT 1  -- 최신 데이터 한 건만 가져옴
+                                            ) A
+                                            LEFT OUTER JOIN TRADE_PLAN B
+                                            ON B.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'S1' AND B.plan_execute = 'N' AND B.market_name = %s
+                                        """
+                                        param2 = (f"TrendLine-{trend_type}", f"TrendLine-{trend_type}", cust_info['cust_num'], market, item['currency'], cust_info['cust_nm'], market)
+                                        cur032.execute(query32, param2)  
+                                        result_32 = cur032.fetchall()
+
+                                        support_price = 0
+                                        regist_price = 0
+
+                                        if len(result_32) > 0:
+                                            for trade_signal in result_32:
+                                                support_price = trade_signal[10] if trade_signal[10] is not None else trade_signal[3]
+                                                regist_price = trade_signal[11] if trade_signal[11] is not None else trade_signal[4]
+                                                
+                                                trade_info = {
+                                                    "tr_tp": "S",
+                                                    "tr_state": "02",
+                                                    "id": trade_signal[0],
+                                                    "prd_nm": trade_signal[1],
+                                                    "tr_price": trade_signal[2],
+                                                    "support_price": support_price,
+                                                    "regist_price": regist_price,
+                                                    "tr_count": trade_signal[5],    # 매도주문건수
+                                                    "sell_order_no": None,
+                                                    "plan_amt": plan_amt,  # 매매예정금액
+                                                    "trade_source": "SIGNAL"
+                                                }
+                                                trade_list.append(trade_info)
 
                             # 잔고정보 현행화
                             ins_param1 = (
@@ -948,21 +955,22 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt, trade_source):
     conn.close()
 
 # 매수 대상 설정
-prd_list = ('XRP', 'BTC', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'RENDER')
+# prd_list = ('XRP', 'BTC', 'ETH', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER')
+prd_list = ('XRP',)
 
 # 매수예정금액
 plan_amt = 100000
 
 # 매매대상기준('SIGNAL', 'PLAN')
-trade_source = "PLAN"
+trade_source = "SIGNAL"
 
 # 1분마다 실행 설정
-schedule.every(1).minutes.do(analyze_data, 'mama', 'UPBIT', 'mid', prd_list, plan_amt, trade_source)        
+schedule.every(1).minutes.do(analyze_data, 'phills2', 'UPBIT', 'mid', prd_list, plan_amt, trade_source)        
 
 # 실행
 if __name__ == "__main__":
     print("1분마다 분석 작업을 실행합니다...")
-    analyze_data('mama', 'UPBIT', 'mid', prd_list, plan_amt, trade_source)  # 첫 실행
+    analyze_data('phills2', 'UPBIT', 'mid', prd_list, plan_amt, trade_source)  # 첫 실행
     while True:
         schedule.run_pending()
         time.sleep(1)
