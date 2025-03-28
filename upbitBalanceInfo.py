@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import schedule
 import json
 import shlex
+import pytz
 
 api_url = os.getenv("UPBIT_API")
 
@@ -936,7 +937,9 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                 time.sleep(0.1)
             
             else:
-                print(name,"-",volume)        
+                timezone = pytz.timezone('Asia/Seoul')
+                end_time = datetime.now(timezone)
+                print(f"{name} : {volume}, 잔고정보 분석 종료 시간 : {end_time}")
             
         cur04 = conn.cursor()
         del_param1 = (
@@ -956,7 +959,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
     conn.close()
 
 # 매수 대상 설정
-# prd_list = ('XRP', 'BTC', 'ETH', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER')
+# prd_list = ('XRP', 'BTC', 'ETH', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER', 'ZETA', 'AVAX')
 prd_list = ('XRP',)
 
 # 매수예정금액
@@ -967,7 +970,7 @@ schedule.every(1).minutes.do(analyze_data, 'phills2', 'UPBIT', 'mid', prd_list, 
 
 # 실행
 if __name__ == "__main__":
-    print("1분마다 분석 작업을 실행합니다...")
+    print("잔고정보 1분마다 분석 작업을 실행합니다...")
     analyze_data('phills2', 'UPBIT', 'mid', prd_list, plan_amt)  # 첫 실행
     while True:
         schedule.run_pending()

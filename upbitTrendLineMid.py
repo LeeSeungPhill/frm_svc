@@ -530,7 +530,7 @@ def analyze_data(trend_type):
                         update_tr_state(conn, '11', result[0])
 
             # 결과 출력
-            print(f"{i} 분석 종료 시간: {end_time}")
+            print(f"{i} 중기 추세라인 분석 종료 시간: {end_time}")
 
             four_hour_ago = end_time - timedelta(hours=4)
 
