@@ -408,7 +408,7 @@ def fetch_ohlcv_with_retry(exchange, symbol, timeframe_15m, limit=200, max_retri
 
 def analyze_data(trend_type):
     # 감시할 코인
-    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW"]
+    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW", "ZETA/KRW", "AVAX/KRW"]
     timeframe_1d = "1d"    # 일봉 데이터
     timeframe_4h = "4h"   # 4시간봉 데이터
     timeframe_1h = "1h"   # 1시간봉 데이터
@@ -701,7 +701,7 @@ schedule.every(1).minutes.do(analyze_data, 'mid')
 
 # 실행
 if __name__ == "__main__":
-    print("1분마다 분석 작업을 실행합니다...")
+    print("중기 추세라인 1분마다 분석 작업을 실행합니다...")
     analyze_data('mid')  # 첫 실행
     while True:
         schedule.run_pending()
