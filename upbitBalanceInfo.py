@@ -881,7 +881,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                                                 trade_list.append(trade_info)
 
                             # 잔고정보 현행화
-                            ins_param1 = (
+                            upd_param2 = (
                                 price,
                                 volume,
                                 amt,
@@ -898,30 +898,10 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                                 cust_info['cust_num'],
                                 cust_info['market_name'],
                                 "KRW-"+item['currency'],
-                                cust_info['acct_no'],
-                                cust_info['cust_num'],
-                                cust_info['market_name'],
-                                "KRW-"+item['currency'],
-                                price,
-                                volume,
-                                amt,
-                                loss_profit_rate,
-                                last_order_no,
-                                last_buy_count,
-                                last_sell_count,
-                                current_price,
-                                current_amt,
-                                target_price,
-                                loss_price,
-                                'Y',
-                                user_id,
-                                datetime.now(),
-                                user_id,
-                                datetime.now(),
                             )
                             
-                            insert1 = "with upsert as (update balance_info set hold_price = %s, hold_volume = %s, hold_amt = %s, loss_profit_rate = %s, last_order_no = %s, last_buy_count = %s, last_sell_count = %s, current_price = %s, current_amt = %s, target_price = %s, loss_price = %s, proc_yn = 'Y', chgr_id = %s, chg_date = %s where cust_num = %s and market_name = %s and prd_nm = %s returning * ) insert into balance_info(acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, hold_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, target_price, loss_price, proc_yn, regr_id, reg_date, chgr_id, chg_date) select %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s where not exists(select * from upsert)"
-                            cur03.execute(insert1, ins_param1)
+                            update2 = "update balance_info set hold_price = %s, hold_volume = %s, hold_amt = %s, loss_profit_rate = %s, last_order_no = %s, last_buy_count = %s, last_sell_count = %s, current_price = %s, current_amt = %s, target_price = %s, loss_price = %s, proc_yn = 'Y', chgr_id = %s, chg_date = %s where cust_num = %s and market_name = %s and prd_nm = %s"
+                            cur03.execute(update2, upd_param2)
                             conn.commit()
                             cur03.close()            
 
@@ -931,6 +911,31 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                         
                             os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
                     
+                    else:
+                        # 잔고조회 기준 잔고정보 미존재 대상 생성 처리
+                        ins_param1 = (
+                            cust_info['acct_no'],
+                            cust_info['cust_num'],
+                            cust_info['market_name'],
+                            "KRW-"+item['currency'],
+                            price,
+                            volume,
+                            amt,
+                            loss_profit_rate,
+                            current_price,
+                            current_amt,
+                            'Y',
+                            user_id,
+                            datetime.now(),
+                            user_id,
+                            datetime.now(),
+                        )
+                        
+                        insert1 = "insert into balance_info(acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, hold_amt, loss_profit_rate, current_price, current_amt, proc_yn, regr_id, reg_date, chgr_id, chg_date) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                        cur03.execute(insert1, ins_param1)
+                        conn.commit()
+                        cur03.close() 
+
                     cur032.close()
                     cur033.close()
                 
