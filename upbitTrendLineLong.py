@@ -619,7 +619,7 @@ def analyze_data(trend_type):
                                     cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
                                     
                                     update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
-                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i, tr_dtm))
+                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i))
                                     
                                     conn.commit()
                                     
@@ -679,7 +679,7 @@ def analyze_data(trend_type):
                                     cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
                                     
                                     update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
-                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i, tr_dtm))
+                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i))
                                     
                                     conn.commit()
                                     
