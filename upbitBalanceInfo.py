@@ -65,15 +65,155 @@ def candle_minutes_info(market, in_minutes):
 def create_trade_plan(plan_list, user_id, conn):
 
     try:
+        cur00 = conn.cursor()
         cur01 = conn.cursor()
         cur02 = conn.cursor()
         cur03 = conn.cursor()
 
         for plan in plan_list:
-
-            param1 = (plan['cust_nm'], plan['market_name'], plan['prd_nm'], plan['plan_tp'],)
-
+            
+            param0 = (
+                plan['cust_nm'], 
+                plan['market_name'], 
+                plan['prd_nm'], 
+                plan['plan_tp'],
+                plan['plan_price'],
+                plan['plan_vol'],
+                plan['plan_amt'],
+                plan['regist_price'],
+                plan['support_price'],
+            )
+            
             # 기존 데이터 백업
+            select1 = """
+                SELECT 1
+                FROM trade_plan_hist
+                WHERE cust_nm = %s
+                AND market_name = %s
+                AND prd_nm = %s 
+                AND plan_tp = %s
+                AND plan_execute = 'N'
+                AND plan_price = %s
+                AND plan_vol = %s
+                AND plan_amt = %s
+                AND regist_price = %s
+                AND support_price = %s
+            """
+            
+            cur00.execute(select1, param0)  
+            result_01 = cur00.fetchone()
+
+            if result_01:
+                param1 = (plan['cust_nm'], plan['market_name'], plan['prd_nm'], plan['plan_tp'],)
+
+                # 기존 데이터 백업
+                insert1 = """
+                    INSERT INTO trade_plan_hist (
+                        cust_nm, market_name, plan_dtm, plan_execute, prd_nm, price, volume, 
+                        plan_tp, plan_price, plan_vol, plan_amt, regist_price, support_price, 
+                        regr_id, reg_date, chgr_id, chg_date
+                    )
+                    SELECT cust_nm, market_name, plan_dtm, plan_execute, prd_nm, price, volume, 
+                        plan_tp, plan_price, plan_vol, plan_amt, regist_price, support_price, 
+                        regr_id, reg_date, chgr_id, chg_date
+                    FROM trade_plan
+                    WHERE cust_nm = %s
+                    AND market_name = %s
+                    AND prd_nm = %s
+                    AND plan_tp = %s
+                    AND plan_execute = 'N'
+                """
+                
+                cur01.execute(insert1, param1)
+                rows_affected = cur01.rowcount
+                
+                if rows_affected > 0:
+                    conn.commit()
+
+                # 백업이 성공한 경우에만 삭제
+                if rows_affected > 0:
+                    delete1 = """
+                        DELETE FROM trade_plan
+                        WHERE cust_nm = %s 
+                        AND market_name = %s
+                        AND prd_nm = %s 
+                        AND plan_tp = %s
+                        AND plan_execute = 'N'
+                    """
+                    cur02.execute(delete1, param1)
+                    conn.commit()
+
+                param2 = (
+                    plan['cust_nm'], 
+                    plan['market_name'], 
+                    datetime.now().strftime('%Y%m%d%H%M%S'), 
+                    plan['prd_nm'], 
+                    plan["price"], 
+                    plan["volume"],
+                    plan['plan_tp'],
+                    plan['plan_price'],
+                    plan['plan_vol'],
+                    plan['plan_amt'],
+                    plan['support_price'],
+                    plan['regist_price'],
+                    user_id,
+                    datetime.now(),
+                    user_id,
+                    datetime.now(),
+                    plan['cust_nm'], 
+                    plan['market_name'], 
+                    plan['prd_nm'], 
+                    plan['plan_tp']
+                )
+
+                # 새로운 데이터 삽입 (중복 방지 포함)
+                insert2 = """
+                    INSERT INTO trade_plan (
+                        cust_nm, market_name, plan_dtm, plan_execute, prd_nm, price, volume, 
+                        plan_tp, plan_price, plan_vol, plan_amt, support_price, regist_price, 
+                        regr_id, reg_date, chgr_id, chg_date
+                    )
+                    SELECT %s, %s, %s, 'N', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM trade_plan 
+                        WHERE cust_nm = %s
+                        AND market_name = %s
+                        AND prd_nm = %s 
+                        AND plan_tp = %s
+                        AND plan_execute = 'N'
+                    );
+                """
+                cur03.execute(insert2, param2)
+                conn.commit()
+
+    except Exception as e:
+        conn.rollback()  # 오류 발생 시 롤백
+        print(f"Error: {e}")
+
+    finally:
+        cur00.close()
+        cur01.close()
+        cur02.close()
+        cur03.close()
+        
+def regist_trade_plan_hist(cust_num, cust_nm, market_name, prd_list, conn):
+    
+    try:
+        cur01 = conn.cursor()
+        cur02 = conn.cursor()
+        
+        for prd_nm in prd_list:
+            
+            param1 = (
+                cust_nm, 
+                market_name, 
+                prd_nm, 
+                cust_num,
+                market_name, 
+                prd_nm,
+            )
+            
+            # 잔고정보 미존재 대상 매매처리된 매매예정정보 백업 처리
             insert1 = """
                 INSERT INTO trade_plan_hist (
                     cust_nm, market_name, plan_dtm, plan_execute, prd_nm, price, volume, 
@@ -81,18 +221,22 @@ def create_trade_plan(plan_list, user_id, conn):
                     regr_id, reg_date, chgr_id, chg_date
                 )
                 SELECT cust_nm, market_name, plan_dtm, plan_execute, prd_nm, price, volume, 
-                       plan_tp, plan_price, plan_vol, plan_amt, regist_price, support_price, 
-                       regr_id, reg_date, chgr_id, chg_date
+                    plan_tp, plan_price, plan_vol, plan_amt, regist_price, support_price, 
+                    regr_id, reg_date, chgr_id, chg_date
                 FROM trade_plan
                 WHERE cust_nm = %s
                 AND market_name = %s
                 AND prd_nm = %s
-                AND plan_tp = %s
+                AND plan_execute = 'Y'
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM balance_info 
+                    WHERE cust_num = %s AND market_name = %s AND prd_nm = %s
+                )                      
             """
-            
             cur01.execute(insert1, param1)
             rows_affected = cur01.rowcount
-            
+                
             if rows_affected > 0:
                 conn.commit()
 
@@ -100,64 +244,26 @@ def create_trade_plan(plan_list, user_id, conn):
             if rows_affected > 0:
                 delete1 = """
                     DELETE FROM trade_plan
-                    WHERE cust_nm = %s 
-                    AND market_name = %s
-                    AND prd_nm = %s 
-                    AND plan_tp = %s
-                """
-                cur02.execute(delete1, param1)
-                conn.commit()
-
-            param2 = (
-                plan['cust_nm'], 
-                plan['market_name'], 
-                datetime.now().strftime('%Y%m%d%H%M%S'), 
-                plan['prd_nm'], 
-                plan["price"], 
-                plan["volume"],
-                plan['plan_tp'],
-                plan['plan_price'],
-                plan['plan_vol'],
-                plan['plan_amt'],
-                plan['support_price'],
-                plan['regist_price'],
-                user_id,
-                datetime.now(),
-                user_id,
-                datetime.now(),
-                plan['cust_nm'], 
-                plan['market_name'], 
-                plan['prd_nm'], 
-                plan['plan_tp']
-            )
-
-            # 새로운 데이터 삽입 (중복 방지 포함)
-            insert2 = """
-                INSERT INTO trade_plan (
-                    cust_nm, market_name, plan_dtm, plan_execute, prd_nm, price, volume, 
-                    plan_tp, plan_price, plan_vol, plan_amt, support_price, regist_price, 
-                    regr_id, reg_date, chgr_id, chg_date
-                )
-                SELECT %s, %s, %s, 'N', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM trade_plan 
                     WHERE cust_nm = %s
                     AND market_name = %s
-                    AND prd_nm = %s 
-                    AND plan_tp = %s
-                );
-            """
-            cur03.execute(insert2, param2)
-            conn.commit()
-
+                    AND prd_nm = %s
+                    AND plan_execute = 'Y'
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM balance_info 
+                        WHERE cust_num = %s AND market_name = %s AND prd_nm = %s
+                    )                      
+                """
+                cur02.execute(delete1, param1)            
+                conn.commit()
+            
     except Exception as e:
         conn.rollback()  # 오류 발생 시 롤백
-        print(f"Error: {e}")
-
+        print(f"Error: {e}")      
+        
     finally:
-        cur01.close()
-        cur02.close()
-        cur03.close()
+        cur01.close()  
+        cur02.close()       
 
 def decimal_converter(obj):
     if isinstance(obj, Decimal):
@@ -212,12 +318,12 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
 
     for chk_ord in result_1 :
         # 주문 조회
-        order_status = get_order(access_key, secret_key, chk_ord['ord_no'])
+        order_status = get_order(access_key, secret_key, chk_ord[5])
         ord_state = order_status['state']
 
         # 체결완료 상태인 경우
         if ord_state == 'done':
-            if chk_ord['ord_no'] == order_status['uuid']:
+            if chk_ord[5] == order_status['uuid']:
                 order_param = {
                     "ord_dtm": datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
                     "ord_no": order_status['trades'][0]['uuid'],
@@ -237,13 +343,13 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                 upd_param1 = (
                     datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
                     order_status['trades'][0]['uuid'],
-                    chk_ord['ord_no'],
+                    chk_ord[5],
                     order_status['state'],
                     Decimal(order_status['executed_volume']),
                     Decimal(order_status['remaining_volume']),
                     user_id,
                     datetime.now(),
-                    chk_ord['id']
+                    chk_ord[0]
                 )
                 
                 update1 = """UPDATE trade_mng SET 
@@ -264,7 +370,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
         
         # 취소 상태인 경우
         elif ord_state == 'cancel':
-            if chk_ord['ord_no'] == order_status['uuid']:
+            if chk_ord[5] == order_status['uuid']:
                 order_param = {
                     "ord_dtm": datetime.fromisoformat(order_status['created_at']).strftime("%Y%m%d%H%M%S"),
                     "ord_no": order_status['uuid'],
@@ -287,7 +393,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                     Decimal(order_status['remaining_volume']),
                     user_id,
                     datetime.now(),
-                    chk_ord['id']
+                    chk_ord[0]
                 )
                 
                 update1 = """UPDATE trade_mng SET 
@@ -306,8 +412,8 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
         else:
 
             params = {
-                'market': chk_ord['prd_nm'],        # 마켓 ID
-                'states': chk_ord['ord_state'],     # 'wait', 'watch'
+                'market': chk_ord[1],        # 마켓 ID
+                'states': chk_ord[2],     # 'wait', 'watch'
             }
 
             query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
@@ -333,7 +439,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
 
             if raw_order_list is not None:
                 for item in raw_order_list:
-                    if chk_ord['ord_no'] == item['uuid']:
+                    if chk_ord[5] == item['uuid']:
 
                         order_param = {
                                 "ord_dtm": datetime.fromisoformat(item['created_at']).strftime("%Y%m%d%H%M%S"),
@@ -349,7 +455,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                 
                         order_list.append(order_param)
 
-                        if chk_ord['remaining_vol'] != Decimal(item['remaining_volume']) or chk_ord['executed_vol'] != Decimal(item['executed_volume']):
+                        if chk_ord[4] != Decimal(item['remaining_volume']) or chk_ord[3] != Decimal(item['executed_volume']):
 
                             # 매매관리정보 변경 처리
                             cur02 = conn.cursor()
@@ -359,7 +465,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                 Decimal(order_status['remaining_volume']),
                                 user_id,
                                 datetime.now(),
-                                chk_ord['id']
+                                chk_ord[0]
                             )
                             
                             update1 = """UPDATE trade_mng SET 
@@ -482,13 +588,17 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
         # 매매관리정보 주문대기 대상 매매관리정보 현행화
         open_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], cust_info['market_name'], user_id, conn)
         
+        # 잔고정보 미존재 대상 매매처리된 매매예정정보 백업 처리
+        regist_trade_plan_hist(cust_info['cust_num'], cust_info['cust_nm'], cust_info['market_name'], prd_list, conn)
+        
         cur031 = conn.cursor()
         result_31 = []
 
         # 매매예정정보 조회(주문정보 미처리 매수 대상)
         query31 = """
                 SELECT A.id, A.plan_dtm, split_part(A.prd_nm, '-', 2), A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
-                    (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2))
+                    (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2)),
+                    (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2))
                 FROM TRADE_PLAN A
                 WHERE A.cust_nm = %s
                 AND A.market_name = %s
@@ -496,7 +606,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                 AND A.plan_execute = 'N' 
                 AND split_part(A.prd_nm, '-', 2) IN %s
             """
-        param1 = (cust_info['cust_num'], market, cust_info['cust_nm'], market, prd_list)
+        param1 = (cust_info['cust_num'], market, cust_info['cust_num'], market, cust_info['cust_nm'], market, prd_list)
         cur031.execute(query31, param1)  
         result_31 = cur031.fetchall()
 
@@ -528,9 +638,16 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
                     # 현재가가 저항가를 돌파한 경우 매매주문 호출
                     if cu_price > item[7]:
+                        
+                        # 잔고정보 매수횟수, 매도횟수 차감 계산
+                        if item[8] is None:
+                            tr_count = 1
+                        else:
+                            tr_count = 1 if item[8] - item[9] <= 0 else item[8] - item[9]   
+                            
 
-                        # 잔고정보 미존재 또는 매수 횟수가 3보다 작은 경우
-                        if item[8] is None or item[8] < 3:
+                        # 잔고정보 매수 횟수 매도 횟수 차가 2보다 작은 경우 : 
+                        if tr_count < 2:
                             trade_info = {
                                 "tr_tp": "B",
                                 "tr_state": "02",
@@ -539,7 +656,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                                 "tr_price": cu_price,
                                 "support_price": support_price,
                                 "regist_price": regist_price,
-                                "tr_count": item[8] if item[8] is not None else 1,
+                                "tr_count": tr_count,
                                 "buy_order_no": None,
                                 "plan_amt": plan_amt,  # 매매예정금액
                                 "trade_source": "PLAN"
@@ -562,6 +679,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     SELECT 
                         A.id, split_part(A.prd_nm, '/', 1), A.tr_price, ROUND(A.tr_price * 0.98, 1) AS support_price, ROUND(A.tr_price * 1.04, 1) AS regist_price, 
                         (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1))
+                        , (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1))
                         , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price, C.id
                     FROM TR_SIGNAL_INFO A
                     LEFT OUTER JOIN TRADE_PLAN B
@@ -575,7 +693,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     AND split_part(A.prd_nm, '/', 1) IN %s
                     ORDER BY A.tr_dtm DESC
                 """
-        param4 = (cust_info['cust_num'], market, cust_info['cust_nm'], market, cust_info['cust_nm'], market, f"TrendLine-{trend_type}", prd_list)
+        param4 = (cust_info['cust_num'], market, cust_info['cust_num'], market, cust_info['cust_nm'], market, cust_info['cust_nm'], market, f"TrendLine-{trend_type}", prd_list)
         cur034.execute(query34, param4)  
         result_34 = cur034.fetchall()
 
@@ -584,17 +702,24 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
         if len(result_34) >  0:
             for item in result_34:
-                # 잔고정보 미존재 또는 매수 횟수가 3보다 작은 경우
-                if item[5] is None or item[5] < 3:
+                
+                # 잔고정보 매수횟수, 매도횟수 차감 계산
+                if item[5] is None:
+                    tr_count = 1
+                else:
+                    tr_count = 1 if item[5] - item[6] <= 0 else item[5] - item[6]   
+                                
+                # 잔고정보 매수 횟수 매도 횟수 차가 2보다 작은 경우
+                if tr_count < 2:
                     trade_info = {
                         "tr_tp": "B",
                         "tr_state": "02",
                         "id": item[0],
                         "prd_nm": item[1],
                         "tr_price": item[2],
-                        "support_price": item[10] if item[10] is not None else item[3],
-                        "regist_price": item[11] if item[11] is not None else item[4],
-                        "tr_count": item[5] if item[5] is not None else 1,
+                        "support_price": item[11] if item[11] is not None else item[3],
+                        "regist_price": item[12] if item[12] is not None else item[4],
+                        "tr_count": tr_count,
                         "buy_order_no": None,
                         "plan_amt": plan_amt,  # 매매예정금액
                         "trade_source": "SIGNAL"
@@ -602,7 +727,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     trade_list.append(trade_info)
 
                     # 매도(S1) 매매예정정보 미존재한 경우 리스트 생성(S1, S2) : 현재가(plan_price), 저항가(현재가 기준 4% 수익 regist_price), 이탈가(현재가 기준 2% 손실 support_price)
-                    if item[12] is None:
+                    if item[13] is None:
                         buy_division_amt_except_fee = (int(plan_amt) * Decimal('0.9995')).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
                         # 종목당 손실금액(매수예정금액의 -2%)
                         cut_amt = int(plan_amt * Decimal('0.98'))
@@ -965,7 +1090,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
 # 매수 대상 설정
 # prd_list = ('XRP', 'BTC', 'ETH', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER', 'ZETA', 'AVAX')
-prd_list = ('XRP',)
+prd_list = ('ZETA',)
 
 # 매수예정금액
 plan_amt = 100000
