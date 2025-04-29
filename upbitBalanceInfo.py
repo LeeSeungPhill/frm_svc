@@ -840,17 +840,22 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                 current_amt = 0
                 loss_profit_amt = 0
                 loss_profit_rate = 0
-                # 현재가 정보
-                res = requests.get(api_url + "/v1/ticker", params=params).json()
+                
+                try:
+                    # 현재가 정보
+                    res = requests.get(api_url + "/v1/ticker", params=params).json()
 
-                if isinstance(res, dict) and 'error' in res:
-                    # 에러 메시지가 반환된 경우
-                    error_name = res['error'].get('name', 'Unknown')
-                    error_message = res['error'].get('message', 'Unknown')
-                    # print(f"Error {error_name}: {error_message}")
-                    # print(item['currency'])
+                    if isinstance(res, dict) and 'error' in res:
+                        # 에러 메시지가 반환된 경우
+                        error_name = res['error'].get('name', 'Unknown')
+                        error_message = res['error'].get('message', 'Unknown')
+                        print(f"[Ticker 조회 오류] {error_name}: {error_message}")
 
-                else:
+                except Exception as e:
+                    print(f"[Ticker 조회 예외] 오류 발생: {e}")
+                    res = None 
+                
+                if res:    
                     current_price = float(res[0]['trade_price'])
                     
                     if current_price == 0:
@@ -922,7 +927,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                                             "tr_tp": "S",
                                             "tr_state": "02",
                                             "id": plan_id,
-                                            "prd_nm": product,
+                                            "prd_nm": product_symbol,
                                             "tr_price": current_price,
                                             "support_price": float(loss_price),
                                             "regist_price": float(target_price),
@@ -949,7 +954,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                                                 "tr_tp": "S",
                                                 "tr_state": "02",
                                                 "id": plan_id if plan_id is not None else None,
-                                                "prd_nm": product,
+                                                "prd_nm": product_symbol,
                                                 "tr_price": current_price,
                                                 "support_price": float(loss_price),
                                                 "regist_price": float(target_price),
@@ -1068,6 +1073,9 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
                     cur032.close()
                     cur033.close()
+                
+                else:
+                    print("Ticker 데이터가 없습니다.")
                 
                 time.sleep(0.1)
             
