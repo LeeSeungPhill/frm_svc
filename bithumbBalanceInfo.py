@@ -16,7 +16,7 @@ import json
 import shlex
 import pytz
 
-api_url = os.getenv("UPBIT_API")
+api_url = os.getenv("BITHUMB_API")
 
 # 데이터베이스 연결 정보
 DB_NAME = "universe"
@@ -31,18 +31,11 @@ def candle_minutes_info(market, in_minutes):
     now = datetime.now(timezone.utc).isoformat()
     is_breakdown = False
 
-    
-    url = f"{api_url}/v1/candles/minutes/{in_minutes}"
-    
-    params = {  
-        'market': market,  
-        'count': 2,  # 최근 2개 분봉을 가져옴
-        'to': now  
-    } 
+    url = f"{api_url}/v1/candles/minutes/{in_minutes}?market={market}&count=2&to={now}"
     headers = {"accept": "application/json"}
 
     try:
-        response = requests.get(url, params=params, headers=headers)
+        response = requests.get(url, headers=headers)
         response.raise_for_status()  # HTTP 오류 처리
         data = response.json()
     except requests.RequestException as e:
@@ -271,30 +264,37 @@ def decimal_converter(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 def get_order(access_key, secret_key, order_uuid):
-    params = {"uuid": order_uuid}
-    print("order_uuid : ",order_uuid)
-    query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
+    param = dict( uuid=order_uuid )
 
-    m = hashlib.sha512()
-    m.update(query_string)
-    query_hash = m.hexdigest()
-
+    # Generate access token
+    query = urlencode(param).encode()
+    hash = hashlib.sha512()
+    hash.update(query)
+    query_hash = hash.hexdigest()
     payload = {
         'access_key': access_key,
         'nonce': str(uuid.uuid4()),
+        'timestamp': round(time.time() * 1000), 
         'query_hash': query_hash,
         'query_hash_alg': 'SHA512',
+    }   
+    jwt_token = jwt.encode(payload, secret_key)
+    authorization_token = 'Bearer {}'.format(jwt_token)
+    headers = {
+        'Authorization': authorization_token
     }
 
-    jwt_token = jwt.encode(payload, secret_key)
-    authorization = 'Bearer {}'.format(jwt_token)
-    headers = {
-        'Authorization': authorization,
-    }
-    # 주문 조회
-    response = requests.get(api_url + "/v1/order", params=params, headers=headers)
-    # print("response : ", response.json())
-    return response.json()
+    try:
+        # Call API
+        response = requests.get(api_url + '/v1/order', params=param, headers=headers)
+        # handle to success or fail
+        print(response.status_code)
+        print(response.json())
+    except Exception as err:
+        # handle exception
+        print(err)
+
+    return response.json()  
 
 def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
     try:
@@ -345,6 +345,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                             payload = {
                                 'access_key': access_key,
                                 'nonce': str(uuid.uuid4()),
+                                'timestamp': round(time.time() * 1000)
                             }
 
                             jwt_token = jwt.encode(payload, secret_key)
@@ -441,71 +442,74 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                         cur02.close()
 
                 else:
-                    params = {
-                        'market': chk_ord[1],
-                        'states': chk_ord[2],
-                    }
 
-                    query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
+                    param = dict( uuid=order_status['uuid'] )
 
-                    m = hashlib.sha512()
-                    m.update(query_string)
-                    query_hash = m.hexdigest()
-
+                    # Generate access token
+                    query = urlencode(param).encode()
+                    hash = hashlib.sha512()
+                    hash.update(query)
+                    query_hash = hash.hexdigest()
                     payload = {
                         'access_key': access_key,
                         'nonce': str(uuid.uuid4()),
+                        'timestamp': round(time.time() * 1000), 
                         'query_hash': query_hash,
                         'query_hash_alg': 'SHA512',
-                    }
-
+                    }   
                     jwt_token = jwt.encode(payload, secret_key)
+                    authorization_token = 'Bearer {}'.format(jwt_token)
                     headers = {
-                        'Authorization': 'Bearer {}'.format(jwt_token),
+                        'Authorization': authorization_token
                     }
+                    # 개별 주문 조회
+                    try:
+                        # Call API
+                        response = requests.get(api_url + '/v1/order', params=param, headers=headers).json()
+                    except Exception as err:
+                        # handle exception
+                        print(err)
 
-                    raw_order_list = requests.get(api_url + "/v1/orders/open", params=params, headers=headers).json()
+                    if response:
+                        if chk_ord[5] == response['uuid']:
 
-                    if raw_order_list:
-                        for item in raw_order_list:
-                            if chk_ord[5] == item['uuid']:
-                                order_param = {
-                                    "ord_dtm": datetime.fromisoformat(item['created_at']).strftime("%Y%m%d%H%M%S"),
-                                    "ord_no": item['uuid'],
-                                    "prd_nm": item['market'],
-                                    "ord_tp": '01' if item['side'] == 'bid' else '02',
-                                    "ord_state": item['state'],
-                                    "ord_price": item['price'],
-                                    "ord_vol": item['volume'],
-                                    "executed_vol": item['executed_volume'],
-                                    "remaining_vol": item['remaining_volume']
-                                }
+                            order_param = {
+                                "ord_dtm": datetime.fromisoformat(response['created_at']).strftime("%Y%m%d%H%M%S"),
+                                "ord_no": response['uuid'],
+                                "prd_nm": response['market'],
+                                "ord_tp": '01' if response['side'] == 'bid' else '02',
+                                "ord_state": response['state'],
+                                "ord_price": response['price'],
+                                "ord_vol": response['volume'],
+                                "executed_vol": response['executed_volume'],
+                                "remaining_vol": response['remaining_volume']
+                            }
 
-                                order_list.append(order_param)
+                            order_list.append(order_param)
 
-                                if chk_ord[4] != Decimal(item['remaining_volume']) or chk_ord[3] != Decimal(item['executed_volume']):
-                                    cur02 = conn.cursor()
-                                    upd_param1 = (
-                                        order_status['state'],
-                                        Decimal(order_status['executed_volume']),
-                                        Decimal(order_status['remaining_volume']),
-                                        user_id,
-                                        datetime.now(),
-                                        chk_ord[0]
-                                    )
-                                    
-                                    update1 = """UPDATE trade_mng SET 
-                                                    ord_state = %s,
-                                                    executed_vol = %s,
-                                                    remaining_vol = %s,
-                                                    chgr_id = %s,
-                                                    chg_date = %s
-                                                WHERE id = %s
-                                                AND ord_state = 'wait'
-                                            """
-                                    cur02.execute(update1, upd_param1)
-                                    conn.commit()
-                                    cur02.close()
+                            if chk_ord[4] != Decimal(response['remaining_volume']) or chk_ord[3] != Decimal(response['executed_volume']):
+                                cur02 = conn.cursor()
+                                upd_param1 = (
+                                    response['state'],
+                                    Decimal(response['executed_volume']),
+                                    Decimal(response['remaining_volume']),
+                                    user_id,
+                                    datetime.now(),
+                                    chk_ord[0]
+                                )
+                                
+                                update1 = """UPDATE trade_mng SET 
+                                                ord_state = %s,
+                                                executed_vol = %s,
+                                                remaining_vol = %s,
+                                                chgr_id = %s,
+                                                chg_date = %s
+                                            WHERE id = %s
+                                            AND ord_state = 'wait'
+                                        """
+                                cur02.execute(update1, upd_param1)
+                                conn.commit()
+                                cur02.close()
             except Exception as e:
                 print(f"[open_order - 내부 처리 중 예외] 주문 번호 {chk_ord[5]} 처리 중 오류 발생: {e}")
                 continue  # 다음 주문으로 계속
@@ -630,6 +634,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
             payload = {
                 'access_key': cust_info['access_key'],
                 'nonce': str(uuid.uuid4()),
+                'timestamp': round(time.time() * 1000)
             }
 
             jwt_token = jwt.encode(payload, cust_info['secret_key'])
@@ -884,7 +889,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
             
             cur03 = conn.cursor()
             
-            if item['currency'] != "KRW":
+            if item['currency'] not in ["P", "KRW"]:
                 params = {
                     "markets": "KRW-"+item['currency']
                 }
@@ -974,7 +979,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                             
                                 # 매도가능수량 존재하는 경우
                                 if name == product_symbol and float(item['balance']) > 0:
-
+                                    
                                     # 매매예정정보(매도) 존재하는 경우
                                     if plan_id is not None:
                                         # 현재가가 이탈가 이탈하거나 저항가 돌파한 경우 매매주문 호출
@@ -1166,7 +1171,7 @@ prd_list = ('RENDER',)
 plan_amt = 100000000
 
 users = ['phills2', 'mama', 'honey']
-market = 'UPBIT'
+market = 'BITHUMB'
 trend_type = 'mid'    
 
 # 실행
