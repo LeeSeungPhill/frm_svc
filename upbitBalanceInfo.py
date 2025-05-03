@@ -336,9 +336,42 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                         }
                 
                         order_list.append(order_param)
+                        
+                        # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                        price = 0
+                        volume = 0
+                        
+                        try:
+                            payload = {
+                                'access_key': access_key,
+                                'nonce': str(uuid.uuid4()),
+                            }
+
+                            jwt_token = jwt.encode(payload, secret_key)
+                            authorization = 'Bearer {}'.format(jwt_token)
+                            headers = {
+                                'Authorization': authorization,
+                            }
+
+                            # 잔고 조회
+                            accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                        except Exception as e:
+                            print(f"[잔고 조회 예외] 오류 발생: {e}")
+                            accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                        
+                        for item in accounts:
+                            name = "KRW-"+item['currency']
+                            
+                            # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                            if chk_ord[1] == name:
+                                price = float(item['avg_buy_price'])                        # 평균단가    
+                                volume = float(item['balance']) + float(item['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
 
                         cur02 = conn.cursor()
                         upd_param1 = (
+                            price,
+                            volume,
                             datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
                             order_status['trades'][0]['uuid'],
                             chk_ord[5],
@@ -351,6 +384,8 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                         )
                         
                         update1 = """UPDATE trade_mng SET 
+                                        hold_price = %s,
+                                        hold_vol = %s,
                                         ord_dtm = %s,
                                         ord_no = %s,
                                         orgn_ord_no = %s,
@@ -493,11 +528,11 @@ def proc_trade_mng_hist(cust_num, market_name, conn):
         # 기존 데이터 백업
         insert1 = """
             INSERT INTO trade_mng_hist (
-                cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
+                cust_num, market_name, hold_price, hold_vol, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
                 cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
             )
             SELECT 
-                cust_num, market_name, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
+                cust_num, market_name, hold_price, hold_vol, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
                 cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
             FROM trade_mng A
             WHERE A.cust_num = %s
@@ -591,207 +626,6 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
         # 잔고정보 미존재 대상 매매처리된 매매예정정보 백업 처리
         regist_trade_plan_hist(cust_info['cust_num'], cust_info['cust_nm'], cust_info['market_name'], prd_list, conn)
         
-        cur031 = conn.cursor()
-        result_31 = []
-
-        # 매매예정정보 조회(주문정보 미처리 매수 대상)
-        query31 = """
-                SELECT A.id, A.plan_dtm, split_part(A.prd_nm, '-', 2), A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
-                    (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2)),
-                    (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2))
-                FROM TRADE_PLAN A
-                WHERE A.cust_nm = %s
-                AND A.market_name = %s
-                AND A.plan_tp = 'B1'
-                AND A.plan_execute = 'N' 
-                AND split_part(A.prd_nm, '-', 2) IN %s
-            """
-        param1 = (cust_info['cust_num'], market, cust_info['cust_num'], market, cust_info['cust_nm'], market, prd_list)
-        cur031.execute(query31, param1)  
-        result_31 = cur031.fetchall()
-
-        trade_list = []
-
-        if len(result_31) > 0:
-            for item in result_31:
-
-                params = {
-                    "markets": item[2]
-                }
-
-                cu_price = 0
-
-                # 현재가 정보
-                res = requests.get(api_url + "/v1/ticker", params=params).json()
-
-                if isinstance(res, dict) and 'error' in res:
-                    # 에러 메시지가 반환된 경우
-                    error_name = res['error'].get('name', 'Unknown')
-                    error_message = res['error'].get('message', 'Unknown')
-                    # print(f"Error {error_name}: {error_message}")
-                    # print(item['currency'])
-
-                else:
-                    cu_price = float(res[0]['trade_price'])    
-                    support_price = float(Decimal(cu_price * 0.98).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))    # cu_price의 -2%
-                    regist_price = float(Decimal(cu_price * 1.04).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))     # cu_price의 4%
-
-                    # 현재가가 저항가를 돌파한 경우 매매주문 호출
-                    if cu_price > item[7]:
-                        
-                        # 잔고정보 매수횟수, 매도횟수 차감 계산
-                        if item[8] is None:
-                            tr_count = 1
-                        else:
-                            tr_count = 1 if item[8] - item[9] <= 0 else item[8] - item[9]   
-                            
-
-                        # 잔고정보 매수 횟수 매도 횟수 차가 2보다 작은 경우 : 
-                        if tr_count < 2:
-                            trade_info = {
-                                "tr_tp": "B",
-                                "tr_state": "02",
-                                "id": item[0],
-                                "prd_nm": item[2],
-                                "tr_price": cu_price,
-                                "support_price": support_price,
-                                "regist_price": regist_price,
-                                "tr_count": tr_count,
-                                "buy_order_no": None,
-                                "plan_amt": plan_amt,  # 매매예정금액
-                                "trade_source": "PLAN"
-                            }
-                            trade_list.append(trade_info)
-
-            if len(trade_list) > 0:
-                trade_list_json = json.dumps(trade_list, default=decimal_converter)
-                safe_trade_list_json = shlex.quote(trade_list_json)    
-            
-                os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
-
-        cur031.close()
-
-        cur034 = conn.cursor()
-        result_34 = []
-
-        # 매매신호정보 조회(주문정보 미처리 매수 대상)
-        query34 = """
-                    SELECT 
-                        A.id, split_part(A.prd_nm, '/', 1), A.tr_price, ROUND(A.tr_price * 0.98, 1) AS support_price, ROUND(A.tr_price * 1.04, 1) AS regist_price, 
-                        (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1))
-                        , (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1))
-                        , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price, C.id
-                    FROM TR_SIGNAL_INFO A
-                    LEFT OUTER JOIN TRADE_PLAN B
-                    ON B.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'B1' AND B.plan_execute = 'N' AND B.market_name = %s
-                    LEFT OUTER JOIN TRADE_PLAN C
-                    ON C.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(C.prd_nm, '-', 2) AND C.plan_tp = 'S1' AND B.plan_execute = 'N' AND B.market_name = %s
-                    WHERE A.signal_name = %s
-                    AND A.tr_tp = 'B'
-                    AND A.tr_state = '02'
-                    AND A.buy_order_no IS NULL
-                    AND split_part(A.prd_nm, '/', 1) IN %s
-                    ORDER BY A.tr_dtm DESC
-                """
-        param4 = (cust_info['cust_num'], market, cust_info['cust_num'], market, cust_info['cust_nm'], market, cust_info['cust_nm'], market, f"TrendLine-{trend_type}", prd_list)
-        cur034.execute(query34, param4)  
-        result_34 = cur034.fetchall()
-
-        trade_list = []
-        plan_list = []
-
-        if len(result_34) >  0:
-            for item in result_34:
-                
-                # 잔고정보 매수횟수, 매도횟수 차감 계산
-                if item[5] is None:
-                    tr_count = 1
-                else:
-                    tr_count = 1 if item[5] - item[6] <= 0 else item[5] - item[6]   
-                                
-                # 잔고정보 매수 횟수 매도 횟수 차가 2보다 작은 경우
-                if tr_count < 2:
-                    trade_info = {
-                        "tr_tp": "B",
-                        "tr_state": "02",
-                        "id": item[0],
-                        "prd_nm": item[1],
-                        "tr_price": item[2],
-                        "support_price": item[11] if item[11] is not None else item[3],
-                        "regist_price": item[12] if item[12] is not None else item[4],
-                        "tr_count": tr_count,
-                        "buy_order_no": None,
-                        "plan_amt": plan_amt,  # 매매예정금액
-                        "trade_source": "SIGNAL"
-                    }
-                    trade_list.append(trade_info)
-
-                    # 매도(S1) 매매예정정보 미존재한 경우 리스트 생성(S1, S2) : 현재가(plan_price), 저항가(현재가 기준 4% 수익 regist_price), 이탈가(현재가 기준 2% 손실 support_price)
-                    if item[13] is None:
-                        buy_division_amt_except_fee = (int(plan_amt) * Decimal('0.9995')).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
-                        # 종목당 손실금액(매수예정금액의 -2%)
-                        cut_amt = int(plan_amt * Decimal('0.98'))
-                        # 안전마진 매도 수량
-                        plan_vol = (Decimal(cut_amt) / (item[4] - item[3])).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
-                        # 매매예정금액
-                        plan_amt_f = int(item[2] * Decimal(plan_vol))
-
-                        plan_param = {
-                            "cust_nm": cust_info['cust_nm'],
-                            "market_name": market,
-                            "prd_nm": "KRW-"+item[1], 
-                            "price": 0, 
-                            "volume": 0,
-                            "plan_tp": "S1",
-                            "plan_price": item[2],
-                            "plan_vol": plan_vol,
-                            "plan_amt": plan_amt_f,
-                            "support_price": item[3],
-                            "regist_price": item[4],
-                        }
-
-                        plan_list.append(plan_param)
-
-                        # 매도 수량
-                        plan_vol = (buy_division_amt_except_fee / item[2]).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
-                        # 매매예정금액
-                        plan_amt_f = int(item[2] * Decimal(plan_vol))
-
-                        plan_param = {
-                            "cust_nm": cust_info['cust_nm'],
-                            "market_name": market,
-                            "prd_nm": "KRW-"+item[1], 
-                            "price": 0, 
-                            "volume": 0,
-                            "plan_tp": "S2",
-                            "plan_price": item[2],
-                            "plan_vol": plan_vol,
-                            "plan_amt": plan_amt_f,
-                            "support_price": item[3],
-                            "regist_price": item[4],
-                        }
-
-                        plan_list.append(plan_param)
-
-            # 매매예정정보 백업 및 생성
-            if len(plan_list) > 0:
-                create_trade_plan(plan_list, user_id, conn)
-
-            if len(trade_list) > 0:
-                trade_list_json = json.dumps(trade_list, default=decimal_converter)
-                safe_trade_list_json = shlex.quote(trade_list_json)    
-                
-                os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")            
-
-        cur034.close()
-
-        cur02 = conn.cursor()
-        upd_param1 = (
-            user_id,   # chgr_id
-            datetime.now(),  # chg_date
-            cust_info['cust_num'],   
-        )
-        
         try:
             payload = {
                 'access_key': cust_info['access_key'],
@@ -811,6 +645,226 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
             print(f"[잔고 조회 예외] 오류 발생: {e}")
             accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
         
+        trade_cash = 0
+        
+        for item in accounts:
+            if "KRW" == item['currency']:  
+                trade_cash = float(item['balance'])    # 주문가능 금액
+
+        # 주문가능 금액이 매매예정금액보다 큰 경우 매수 진행
+        if plan_amt < trade_cash:
+        
+            cur031 = conn.cursor()
+            result_31 = []
+
+            # 매매예정정보 조회(주문정보 미처리 매수 대상)
+            query31 = """
+                    SELECT A.id, A.plan_dtm, split_part(A.prd_nm, '-', 2), A.plan_price, A.plan_vol, A.plan_amt, A.support_price, A.regist_price,
+                        (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2)),
+                        (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '-', 2))
+                    FROM TRADE_PLAN A
+                    WHERE A.cust_nm = %s
+                    AND A.market_name = %s
+                    AND A.plan_tp = 'B1'
+                    AND A.plan_execute = 'N' 
+                    AND split_part(A.prd_nm, '-', 2) IN %s
+                """
+            param1 = (cust_info['cust_num'], market, cust_info['cust_num'], market, cust_info['cust_nm'], market, prd_list)
+            cur031.execute(query31, param1)  
+            result_31 = cur031.fetchall()
+
+            trade_list = []
+
+            if len(result_31) > 0:
+                for item in result_31:
+
+                    params = {
+                        "markets": item[2]
+                    }
+
+                    cu_price = 0
+
+                    try:
+                        # 현재가 정보
+                        res = requests.get(api_url + "/v1/ticker", params=params).json()
+
+                        if isinstance(res, dict) and 'error' in res:
+                            # 에러 메시지가 반환된 경우
+                            error_name = res['error'].get('name', 'Unknown')
+                            error_message = res['error'].get('message', 'Unknown')
+                            print(f"[Ticker 조회 오류] {error_name}: {error_message}")
+
+                    except Exception as e:
+                        print(f"[Ticker 조회 예외] 오류 발생: {e}")
+                        res = None 
+                    
+                    if res:                
+                        cu_price = float(res[0]['trade_price'])    
+                        support_price = float(Decimal(cu_price * 0.98).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))    # cu_price의 -2%
+                        regist_price = float(Decimal(cu_price * 1.04).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))     # cu_price의 4%
+
+                        # 현재가가 저항가를 돌파한 경우 매매주문 호출
+                        if cu_price > item[7]:
+                            
+                            # 잔고정보 매수횟수, 매도횟수 차감 계산
+                            if item[8] is None:
+                                tr_count = 1
+                            else:
+                                tr_count = 1 if item[8] - item[9] <= 0 else item[8] - item[9]   
+                                
+
+                            # 잔고정보 매수 횟수 매도 횟수 차가 2보다 작은 경우 : 
+                            if tr_count < 2:
+                                trade_info = {
+                                    "tr_tp": "B",
+                                    "tr_state": "02",
+                                    "id": item[0],
+                                    "prd_nm": item[2],
+                                    "tr_price": cu_price,
+                                    "support_price": support_price,
+                                    "regist_price": regist_price,
+                                    "tr_count": tr_count,
+                                    "buy_order_no": None,
+                                    "plan_amt": plan_amt,  # 매매예정금액
+                                    "trade_source": "PLAN"
+                                }
+                                trade_list.append(trade_info)
+                    
+                    else:
+                        print("Ticker 데이터가 없습니다.")
+                    
+                    time.sleep(0.1)            
+
+                if len(trade_list) > 0:
+                    trade_list_json = json.dumps(trade_list, default=decimal_converter)
+                    safe_trade_list_json = shlex.quote(trade_list_json)    
+                
+                    os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")
+
+            cur031.close()
+
+            cur034 = conn.cursor()
+            result_34 = []
+
+            # 매매신호정보 조회(주문정보 미처리 매수 대상)
+            query34 = """
+                        SELECT 
+                            A.id, split_part(A.prd_nm, '/', 1), A.tr_price, ROUND(A.tr_price * 0.98, 1) AS support_price, ROUND(A.tr_price * 1.04, 1) AS regist_price, 
+                            (SELECT CASE WHEN last_buy_count = 0 THEN 1 ELSE last_buy_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1))
+                            , (SELECT CASE WHEN last_sell_count = 0 THEN 1 ELSE last_sell_count + 1 END FROM balance_info where cust_num = %s AND market_name = %s AND split_part(prd_nm, '-', 2) = split_part(A.prd_nm, '/', 1))
+                            , B.prd_nm, B.plan_price, B.plan_vol, B.plan_amt, B.support_price, B.regist_price, C.id
+                        FROM TR_SIGNAL_INFO A
+                        LEFT OUTER JOIN TRADE_PLAN B
+                        ON B.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(B.prd_nm, '-', 2) AND B.plan_tp = 'B1' AND B.plan_execute = 'N' AND B.market_name = %s
+                        LEFT OUTER JOIN TRADE_PLAN C
+                        ON C.cust_nm = %s AND split_part(A.prd_nm, '/', 1) = split_part(C.prd_nm, '-', 2) AND C.plan_tp = 'S1' AND B.plan_execute = 'N' AND B.market_name = %s
+                        WHERE A.signal_name = %s
+                        AND A.tr_tp = 'B'
+                        AND A.tr_state = '02'
+                        AND A.buy_order_no IS NULL
+                        AND split_part(A.prd_nm, '/', 1) IN %s
+                        ORDER BY A.tr_dtm DESC
+                    """
+            param4 = (cust_info['cust_num'], market, cust_info['cust_num'], market, cust_info['cust_nm'], market, cust_info['cust_nm'], market, f"TrendLine-{trend_type}", prd_list)
+            cur034.execute(query34, param4)  
+            result_34 = cur034.fetchall()
+
+            trade_list = []
+            plan_list = []
+
+            if len(result_34) >  0:
+                for item in result_34:
+                    
+                    # 잔고정보 매수횟수, 매도횟수 차감 계산
+                    if item[5] is None:
+                        tr_count = 1
+                    else:
+                        tr_count = 1 if item[5] - item[6] <= 0 else item[5] - item[6]   
+                                    
+                    # 잔고정보 매수 횟수 매도 횟수 차가 2보다 작은 경우
+                    if tr_count < 2:
+                        trade_info = {
+                            "tr_tp": "B",
+                            "tr_state": "02",
+                            "id": item[0],
+                            "prd_nm": item[1],
+                            "tr_price": item[2],
+                            "support_price": item[11] if item[11] is not None else item[3],
+                            "regist_price": item[12] if item[12] is not None else item[4],
+                            "tr_count": tr_count,
+                            "buy_order_no": None,
+                            "plan_amt": plan_amt,  # 매매예정금액
+                            "trade_source": "SIGNAL"
+                        }
+                        trade_list.append(trade_info)
+
+                        # 매도(S1) 매매예정정보 미존재한 경우 리스트 생성(S1, S2) : 현재가(plan_price), 저항가(현재가 기준 4% 수익 regist_price), 이탈가(현재가 기준 2% 손실 support_price)
+                        if item[13] is None:
+                            buy_division_amt_except_fee = (int(plan_amt) * Decimal('0.9995')).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+                            # 종목당 손실금액(매수예정금액의 -2%)
+                            cut_amt = int(plan_amt * Decimal('0.98'))
+                            # 안전마진 매도 수량
+                            plan_vol = (Decimal(cut_amt) / (item[4] - item[3])).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+                            # 매매예정금액
+                            plan_amt_f = int(item[2] * Decimal(plan_vol))
+
+                            plan_param = {
+                                "cust_nm": cust_info['cust_nm'],
+                                "market_name": market,
+                                "prd_nm": "KRW-"+item[1], 
+                                "price": 0, 
+                                "volume": 0,
+                                "plan_tp": "S1",
+                                "plan_price": item[2],
+                                "plan_vol": plan_vol,
+                                "plan_amt": plan_amt_f,
+                                "support_price": item[3],
+                                "regist_price": item[4],
+                            }
+
+                            plan_list.append(plan_param)
+
+                            # 매도 수량
+                            plan_vol = (buy_division_amt_except_fee / item[2]).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+                            # 매매예정금액
+                            plan_amt_f = int(item[2] * Decimal(plan_vol))
+
+                            plan_param = {
+                                "cust_nm": cust_info['cust_nm'],
+                                "market_name": market,
+                                "prd_nm": "KRW-"+item[1], 
+                                "price": 0, 
+                                "volume": 0,
+                                "plan_tp": "S2",
+                                "plan_price": item[2],
+                                "plan_vol": plan_vol,
+                                "plan_amt": plan_amt_f,
+                                "support_price": item[3],
+                                "regist_price": item[4],
+                            }
+
+                            plan_list.append(plan_param)
+
+                # 매매예정정보 백업 및 생성
+                if len(plan_list) > 0:
+                    create_trade_plan(plan_list, user_id, conn)
+
+                if len(trade_list) > 0:
+                    trade_list_json = json.dumps(trade_list, default=decimal_converter)
+                    safe_trade_list_json = shlex.quote(trade_list_json)    
+                    
+                    os.system(f"{python_executable} {script_path} order-chk {user} {market} {safe_trade_list_json} --work_mm=202503")            
+
+            cur034.close()
+
+        cur02 = conn.cursor()
+        upd_param1 = (
+            user_id,   # chgr_id
+            datetime.now(),  # chg_date
+            cust_info['cust_num'],   
+        )
+        
+        # 잔고정보 처리 시작
         # 잔고정보 치리여부 일괄 변경 처리(proc_yn = 'N')
         update1 = """UPDATE balance_info SET 
                         proc_yn = 'N',
@@ -825,10 +879,9 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
         for item in accounts:
             name = item['currency']
             price = float(item['avg_buy_price'])      # 평균단가    
-            volume = float(item['balance'])           # 보유수량
+            volume = float(item['balance']) + float(item['locked'])    # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
             amt = int(price * volume)                 # 보유금액 
             
-
             cur03 = conn.cursor()
             
             if item['currency'] != "KRW":
@@ -850,6 +903,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                         error_name = res['error'].get('name', 'Unknown')
                         error_message = res['error'].get('message', 'Unknown')
                         print(f"[Ticker 조회 오류] {error_name}: {error_message}")
+                        continue
 
                 except Exception as e:
                     print(f"[Ticker 조회 예외] 오류 발생: {e}")
@@ -1103,18 +1157,23 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
 # 매수 대상 설정
 # prd_list = ('XRP', 'BTC', 'ETH', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER', 'ZETA', 'AVAX')
-prd_list = ('ZETA',)
+prd_list = ('RENDER',)
 
 # 매수예정금액
-plan_amt = 100000
+plan_amt = 100000000
 
-# 1분마다 실행 설정
-schedule.every(1).minutes.do(analyze_data, 'phills2', 'UPBIT', 'mid', prd_list, plan_amt)        
+users = ['phills2', 'mama', 'honey']
+market = 'UPBIT'
+trend_type = 'mid'    
 
 # 실행
 if __name__ == "__main__":
     print("잔고정보 1분마다 분석 작업을 실행합니다...")
-    analyze_data('phills2', 'UPBIT', 'mid', prd_list, plan_amt)  # 첫 실행
+
+    for user in users:
+        analyze_data(user, market, trend_type, prd_list, plan_amt)
+        schedule.every(1).minutes.do(analyze_data, user, market, trend_type, prd_list, plan_amt)
+
     while True:
         schedule.run_pending()
         time.sleep(1)
