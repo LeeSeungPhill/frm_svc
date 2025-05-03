@@ -426,6 +426,11 @@ def analyze_data(trend_type):
 
             # 4시간봉 데이터 가져오기
             ohlcv_4h = fetch_ohlcv_with_retry(exchange, i, timeframe_4h)
+            
+            if ohlcv_4h is None:
+                print(f"{i} 장기 추세라인 미처리 => {end_time}")
+                continue
+            
             df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
             
