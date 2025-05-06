@@ -314,8 +314,6 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
         cur01.execute(query1, param1)  
         result_1 = cur01.fetchall()
 
-        order_list = []
-
         for chk_ord in result_1:
             try:
                 order_status = get_order(access_key, secret_key, chk_ord[5])
@@ -323,19 +321,6 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
 
                 if ord_state == 'done':
                     if chk_ord[5] == order_status['uuid']:
-                        order_param = {
-                            "ord_dtm": datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
-                            "ord_no": order_status['trades'][0]['uuid'],
-                            "prd_nm": order_status['trades'][0]['market'],
-                            "ord_tp": '01' if order_status['trades'][0]['side'] == 'bid' else '02',
-                            "ord_state": order_status['state'],
-                            "ord_price": order_status['trades'][0]['price'],
-                            "ord_vol": order_status['trades'][0]['volume'],
-                            "executed_vol": order_status['executed_volume'],
-                            "remaining_vol": order_status['remaining_volume']
-                        }
-                
-                        order_list.append(order_param)
                         
                         # 잔고조회의 매수평균가, 보유수량 가져오기                     
                         price = 0
@@ -378,6 +363,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                             order_status['state'],
                             Decimal(order_status['executed_volume']),
                             Decimal(order_status['remaining_volume']),
+                            Decimal(order_status['paid_fee']),
                             user_id,
                             datetime.now(),
                             chk_ord[0]
@@ -392,6 +378,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                         ord_state = %s,
                                         executed_vol = %s,
                                         remaining_vol = %s,
+                                        paid_fee = %s,
                                         chgr_id = %s,
                                         chg_date = %s
                                     WHERE id = %s
@@ -403,25 +390,13 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                 
                 elif ord_state == 'cancel':
                     if chk_ord[5] == order_status['uuid']:
-                        order_param = {
-                            "ord_dtm": datetime.fromisoformat(order_status['created_at']).strftime("%Y%m%d%H%M%S"),
-                            "ord_no": order_status['uuid'],
-                            "prd_nm": order_status['market'],
-                            "ord_tp": '01' if order_status['side'] == 'bid' else '02',
-                            "ord_state": order_status['state'],
-                            "ord_price": order_status['price'],
-                            "ord_vol": order_status['volume'],
-                            "executed_vol": order_status['executed_volume'],
-                            "remaining_vol": order_status['remaining_volume']
-                        }
-                
-                        order_list.append(order_param)
 
                         cur02 = conn.cursor()
                         upd_param1 = (
                             order_status['state'],
                             Decimal(order_status['executed_volume']),
                             Decimal(order_status['remaining_volume']),
+                            Decimal(order_status['paid_fee']),
                             user_id,
                             datetime.now(),
                             chk_ord[0]
@@ -431,6 +406,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                         ord_state = %s,
                                         executed_vol = %s,
                                         remaining_vol = %s,
+                                        paid_fee = %s,
                                         chgr_id = %s,
                                         chg_date = %s
                                     WHERE id = %s
@@ -469,26 +445,14 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                     if raw_order_list:
                         for item in raw_order_list:
                             if chk_ord[5] == item['uuid']:
-                                order_param = {
-                                    "ord_dtm": datetime.fromisoformat(item['created_at']).strftime("%Y%m%d%H%M%S"),
-                                    "ord_no": item['uuid'],
-                                    "prd_nm": item['market'],
-                                    "ord_tp": '01' if item['side'] == 'bid' else '02',
-                                    "ord_state": item['state'],
-                                    "ord_price": item['price'],
-                                    "ord_vol": item['volume'],
-                                    "executed_vol": item['executed_volume'],
-                                    "remaining_vol": item['remaining_volume']
-                                }
-
-                                order_list.append(order_param)
 
                                 if chk_ord[4] != Decimal(item['remaining_volume']) or chk_ord[3] != Decimal(item['executed_volume']):
                                     cur02 = conn.cursor()
                                     upd_param1 = (
-                                        order_status['state'],
-                                        Decimal(order_status['executed_volume']),
-                                        Decimal(order_status['remaining_volume']),
+                                        item['state'],
+                                        Decimal(item['executed_volume']),
+                                        Decimal(item['remaining_volume']),
+                                        Decimal(item['paid_fee']),
                                         user_id,
                                         datetime.now(),
                                         chk_ord[0]
@@ -498,6 +462,7 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                                     ord_state = %s,
                                                     executed_vol = %s,
                                                     remaining_vol = %s,
+                                                    paid_fee = %s,
                                                     chgr_id = %s,
                                                     chg_date = %s
                                                 WHERE id = %s
@@ -529,11 +494,11 @@ def proc_trade_mng_hist(cust_num, market_name, conn):
         insert1 = """
             INSERT INTO trade_mng_hist (
                 cust_num, market_name, hold_price, hold_vol, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
-                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
+                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, paid_fee, regr_id, reg_date, chgr_id, chg_date
             )
             SELECT 
                 cust_num, market_name, hold_price, hold_vol, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
-                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, regr_id, reg_date, chgr_id, chg_date
+                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, paid_fee, regr_id, reg_date, chgr_id, chg_date
             FROM trade_mng A
             WHERE A.cust_num = %s
             AND A.market_name = %s

@@ -110,11 +110,12 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, c
                                 ord_amt,
                                 executed_vol,
                                 remaining_vol,
+                                paid_fee,
                                 regr_id, 
                                 reg_date, 
                                 chgr_id, 
                                 chg_date
-                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
                         ins_param1 = (
@@ -130,6 +131,7 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, c
                             int(Decimal(item['price']) * Decimal(item['volume'])),
                             Decimal(item['executed_volume']),
                             Decimal(item['remaining_volume']),
+                            Decimal(item['paid_fee']),
                             user_id,
                             datetime.now(),
                             user_id,
