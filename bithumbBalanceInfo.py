@@ -667,7 +667,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                         print(f"[Ticker 조회 예외] 오류 발생: {e}")
                         res = None 
                     
-                    if res:                
+                    if len(res) > 0:                
                         cu_price = float(res[0]['trade_price'])    
                         support_price = float(Decimal(cu_price * 0.98).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))    # cu_price의 -2%
                         regist_price = float(Decimal(cu_price * 1.04).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))     # cu_price의 4%
@@ -878,7 +878,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     print(f"[Ticker 조회 예외] 오류 발생: {e}")
                     res = None 
                 
-                if res:    
+                if len(res) > 0:    
                     current_price = float(res[0]['trade_price'])
                     
                     if current_price == 0:
@@ -1129,7 +1129,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
 # 매수 대상 설정
 # prd_list = ('XRP', 'BTC', 'ETH', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER', 'ZETA', 'AVAX')
-prd_list = ('RENDER',)
+prd_list = ('ETH',)
 
 # 매수예정금액
 plan_amt = 100000000

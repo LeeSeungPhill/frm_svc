@@ -272,7 +272,7 @@ def decimal_converter(obj):
 
 def get_order(access_key, secret_key, order_uuid):
     params = {"uuid": order_uuid}
-    print("order_uuid : ",order_uuid)
+    # print("order_uuid : ",order_uuid)
     query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
 
     m = hashlib.sha512()
@@ -663,7 +663,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                         print(f"[Ticker 조회 예외] 오류 발생: {e}")
                         res = None 
                     
-                    if res:                
+                    if len(res) > 0:                
                         cu_price = float(res[0]['trade_price'])    
                         support_price = float(Decimal(cu_price * 0.98).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))    # cu_price의 -2%
                         regist_price = float(Decimal(cu_price * 1.04).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))     # cu_price의 4%
@@ -874,7 +874,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     print(f"[Ticker 조회 예외] 오류 발생: {e}")
                     res = None 
                 
-                if res:    
+                if len(res) > 0:    
                     current_price = float(res[0]['trade_price'])
                     
                     if current_price == 0:
