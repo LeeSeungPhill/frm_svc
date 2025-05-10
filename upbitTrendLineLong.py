@@ -238,12 +238,18 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                     
                     query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
                     cur.execute(query3, (datetime.now(), prd_nm))
+                    
+                    query4 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '22'"
+                    cur.execute(query4, (current_price, datetime.now(), prd_nm))
                 else:
                     query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '02'"
                     cur.execute(query2, (current_price, datetime.now(), prd_nm))
                     
                     query3 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
-                    cur.execute(query3, (datetime.now(), prd_nm))    
+                    cur.execute(query3, (datetime.now(), prd_nm))
+                    
+                    query4 = "UPDATE TR_SIGNAL_INFO SET tr_state = '24', u_tr_price = %s, chg_date = %s WHERE prd_nm = %s AND tr_tp = 'S' AND tr_state = '21'"
+                    cur.execute(query4, (current_price, datetime.now(), prd_nm))
 
                 conn.commit()
                 
