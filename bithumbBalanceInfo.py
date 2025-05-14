@@ -288,8 +288,8 @@ def get_order(access_key, secret_key, order_uuid):
         # Call API
         response = requests.get(api_url + '/v1/order', params=param, headers=headers)
         # handle to success or fail
-        print(response.status_code)
-        print(response.json())
+        # print(response.status_code)
+        # print(response.json())
     except Exception as err:
         # handle exception
         print(err)
@@ -321,43 +321,9 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
 
                 if ord_state == 'done':
                     if chk_ord[5] == order_status['uuid']:
-                        
-                        # 잔고조회의 매수평균가, 보유수량 가져오기                     
-                        price = 0
-                        volume = 0
-                        
-                        try:
-                            payload = {
-                                'access_key': access_key,
-                                'nonce': str(uuid.uuid4()),
-                                'timestamp': round(time.time() * 1000)
-                            }
-
-                            jwt_token = jwt.encode(payload, secret_key)
-                            authorization = 'Bearer {}'.format(jwt_token)
-                            headers = {
-                                'Authorization': authorization,
-                            }
-
-                            # 잔고 조회
-                            accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
-
-                        except Exception as e:
-                            print(f"[잔고 조회 예외] 오류 발생: {e}")
-                            accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
-                        
-                        for item in accounts:
-                            name = "KRW-"+item['currency']
-                            
-                            # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
-                            if chk_ord[1] == name:
-                                price = float(item['avg_buy_price'])                        # 평균단가    
-                                volume = float(item['balance']) + float(item['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
 
                         cur02 = conn.cursor()
                         upd_param1 = (
-                            price,
-                            volume,
                             datetime.fromisoformat(order_status['trades'][0]['created_at']).strftime("%Y%m%d%H%M%S"),
                             order_status['trades'][0]['uuid'],
                             chk_ord[5],
@@ -371,8 +337,6 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                         )
                         
                         update1 = """UPDATE trade_mng SET 
-                                        hold_price = %s,
-                                        hold_vol = %s,
                                         ord_dtm = %s,
                                         ord_no = %s,
                                         orgn_ord_no = %s,
@@ -383,7 +347,6 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                         chgr_id = %s,
                                         chg_date = %s
                                     WHERE id = %s
-                                    AND ord_state = 'wait'
                                 """
                         cur02.execute(update1, upd_param1)
                         conn.commit()
@@ -411,7 +374,6 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                         chgr_id = %s,
                                         chg_date = %s
                                     WHERE id = %s
-                                    AND ord_state = 'wait'
                                 """
                         cur02.execute(update1, upd_param1)
                         conn.commit()
@@ -469,11 +431,64 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                                 chgr_id = %s,
                                                 chg_date = %s
                                             WHERE id = %s
-                                            AND ord_state = 'wait'
                                         """
                                 cur02.execute(update1, upd_param1)
                                 conn.commit()
                                 cur02.close()
+                                
+                            else:
+                                # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                                price = 0
+                                volume = 0
+                                
+                                try:
+                                    payload = {
+                                        'access_key': access_key,
+                                        'nonce': str(uuid.uuid4()),
+                                        'timestamp': round(time.time() * 1000)
+                                    }
+
+                                    jwt_token = jwt.encode(payload, secret_key)
+                                    authorization = 'Bearer {}'.format(jwt_token)
+                                    headers = {
+                                        'Authorization': authorization,
+                                    }
+
+                                    # 잔고 조회
+                                    accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                                except Exception as e:
+                                    print(f"[잔고 조회 예외] 오류 발생: {e}")
+                                    accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                                
+                                for item in accounts:
+                                    name = "KRW-"+item['currency']
+                                    
+                                    # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                                    if chk_ord[1] == name:
+                                        price = float(item['avg_buy_price'])                        # 평균단가    
+                                        volume = float(item['balance']) + float(item['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
+
+                                cur02 = conn.cursor()
+                                upd_param1 = (
+                                    price,
+                                    volume,
+                                    user_id,
+                                    datetime.now(),
+                                    chk_ord[0]
+                                )
+                                
+                                update1 = """UPDATE trade_mng SET 
+                                                hold_price = %s,
+                                                hold_vol = %s,
+                                                chgr_id = %s,
+                                                chg_date = %s
+                                            WHERE id = %s
+                                        """
+                                cur02.execute(update1, upd_param1)
+                                conn.commit()
+                                cur02.close()
+                                    
             except Exception as e:
                 print(f"[open_order - 내부 처리 중 예외] 주문 번호 {chk_ord[5]} 처리 중 오류 발생: {e}")
                 continue  # 다음 주문으로 계속
