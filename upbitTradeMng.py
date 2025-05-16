@@ -23,15 +23,20 @@ DB_PASSWORD = "asdf1234"
 DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
-def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, conn):
+def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
     try:
         date_obj = datetime.strptime(start_dt, '%Y%m%d')
         datetime_with_time = datetime.combine(date_obj, datetime.strptime('00:00:00', '%H:%M:%S').time())
         start_dt = datetime_with_time.isoformat() + "+09:00"
-
-        for prd_nm in prd_list:
+        
+        # 업비트에서 거래 가능한 종목 목록
+        url = "https://api.upbit.com/v1/market/all?is_details=false"
+        headers = {"accept": "application/json"}
+        market_list = requests.get(url, headers=headers).json()
+        
+        for item in market_list:
             params = {
-                'market': "KRW-" + prd_nm,          # 마켓 ID
+                'market': item['market'],           # 마켓 ID
                 'states[]': ['done', 'cancel'],
                 "start_time": start_dt,             # 조회시작일 이후 7일까지
             }
@@ -73,7 +78,7 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, c
                         AND ord_state IN ('done', 'cancel')
                         AND cust_num = %s
                         AND prd_nm = %s
-                        AND ord_no = %s
+                        AND (ord_no = %s OR orgn_ord_no = %s)
 
                         UNION ALL
 
@@ -84,16 +89,29 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, c
                         AND ord_state IN ('done', 'cancel')
                         AND cust_num = %s
                         AND prd_nm = %s
-                        AND ord_no = %s
+                        AND (ord_no = %s OR orgn_ord_no = %s)
                     """
                     
-                    param1 = (cust_num, "KRW-" + prd_nm, item['uuid'], cust_num, "KRW-" + prd_nm, item['uuid'])
+                    param1 = (cust_num, item['market'], item['uuid'], item['uuid'], cust_num, item['market'], item['uuid'], item['uuid'])
                     cur01.execute(select1, param1)  
                     result_1 = cur01.fetchall()
 
                     if len(result_1) < 1:
 
                         cur02 = conn.cursor()
+                        
+                        if item['ord_type'] == 'market':    # 시장가 매도 : 주문가 = 체결금액 / 체결량
+                            price = Decimal(item['executed_funds']) / Decimal(item['executed_volume'])
+                            vol = Decimal(item['executed_volume'])
+                            remaining_vol = 0
+                        elif item['ord_type'] == 'price':    # 시장가 매수 : 주문가 = 체결금액 / 체결량
+                            price = Decimal(item['executed_funds']) / Decimal(item['executed_volume'])
+                            vol = Decimal(item['executed_volume'])
+                            remaining_vol = 0
+                        elif item['ord_type'] == 'limit':    # 지정가 주문
+                            price = Decimal(item['price'])
+                            vol = Decimal(item['volume'])
+                            remaining_vol = Decimal(item['remaining_volume'])
 
                         # 매매관리정보 생성
                         insert1 = """
@@ -126,11 +144,11 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, c
                             item['market'],
                             '01' if item['side'] == 'bid' else '02',
                             item['state'],
-                            Decimal(item['price']),
-                            Decimal(item['volume']),
-                            int(Decimal(item['price']) * Decimal(item['volume'])),
+                            price,
+                            vol,
+                            Decimal(item['executed_funds']),
                             Decimal(item['executed_volume']),
-                            Decimal(item['remaining_volume']),
+                            remaining_vol,
                             Decimal(item['paid_fee']),
                             user_id,
                             datetime.now(),
@@ -146,7 +164,7 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, prd_list, c
     except Exception as e:
         print(f"[close_order - 전체 예외] 함수 실행 중 예외 발생: {e}")    
 
-def analyze_data(user, prd_list):
+def analyze_data(user):
     
     # PostgreSQL 데이터베이스에 연결
     conn = psycopg2.connect(
@@ -180,30 +198,53 @@ def analyze_data(user, prd_list):
     
         user_id = "TRADE_MNG"
         start_dt = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
-
+        # start_dt = "20241104"
         # 종료된 주문의 매매관리정보 미존재 대상 매매관리정보 생성 처리 
-        close_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], start_dt, user_id, prd_list, conn)
-
+        close_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], start_dt, user_id, conn)
+        
         timezone = pytz.timezone('Asia/Seoul')
         end_time = datetime.now(timezone)
         print(f"{cust_info['cust_nm']} : {start_dt} 이후 매매관리정보 현행화 작업 종료 시간 : {end_time}")
+        
+        # start_date = datetime(2024, 1, 1).date()
+        # end_date = datetime(2024, 12, 31).date()
+        
+        # while start_date <= end_date:
+        #     start_dt_str = start_date.strftime('%Y%m%d')
+
+        #     try:
+        #         # 종료된 주문의 매매관리정보 미존재 대상 매매관리정보 생성 처리
+        #         close_order(
+        #             cust_info['access_key'],
+        #             cust_info['secret_key'],
+        #             cust_info['cust_num'],
+        #             start_dt_str,
+        #             user_id,
+        #             conn
+        #         )
+        #         timezone = pytz.timezone('Asia/Seoul')
+        #         end_time = datetime.now(timezone)
+        #         print(f"{cust_info['cust_nm']} : {start_dt_str} 이후 매매관리정보 현행화 작업 종료 시간 : {end_time}")
+        #     except Exception as e:
+        #         print(f"[{start_dt_str}] 처리 중 오류 발생: {e}")
+
+        #     # 다음 7일 간격으로 증가
+        #     start_date += timedelta(days=7)
 
     cur01.close()
     conn.close()
 
-# 매매 대상 설정
-prd_list = ('XRP', 'BTC', 'ETH', 'ARK', 'GAS', 'ATOM', 'SOL', 'ADA', 'ONDO', 'XLM', 'HBAR', 'SUI', 'LINK', 'STX', 'RENDER', 'ZETA', 'AVAX')
-
 users = ['phills2', 'mama', 'honey']
+# users = ['phills2']
 
 # 실행
 if __name__ == "__main__":
     print("매매관리정보 현행화 작업을 매일 실행합니다...")
 
     for user in users:
-        analyze_data(user, prd_list)
+        analyze_data(user)
         # 매일 오전 9시에 실행되도록 스케줄 설정
-        schedule.every().day.at("09:00").do(analyze_data, user, prd_list)
+        schedule.every().day.at("09:00").do(analyze_data, user)
 
     while True:
         schedule.run_pending()
