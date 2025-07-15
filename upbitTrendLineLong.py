@@ -432,6 +432,7 @@ def analyze_data(trend_type):
         count = 0
         for item in market_list:
             market_str = item.get('market', '')
+            market_kor_name = item.get('korean_name', '')
             
             if '-' in market_str:
                 currency, market = market_str.split('-')
@@ -448,7 +449,7 @@ def analyze_data(trend_type):
                     ohlcv_4h = fetch_ohlcv_with_retry(exchange, market_currency, timeframe_4h)
                     
                     if ohlcv_4h is None or len(ohlcv_4h) < 200:
-                        print(f"{market_currency} 장기 추세라인 미처리 => {end_time}")
+                        print(f"{market_kor_name}[{market_currency}] 장기 추세라인 미처리 => {end_time}")
                         continue
                     
                     df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -502,7 +503,7 @@ def analyze_data(trend_type):
                             # if idx == 0 and float(df_1h['close'].iloc[-1]) >= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                             # if idx == 0 and float(df_15m['close'].iloc[-1]) >= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                                 formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                                message = f"{market_currency} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                                message = f"{market_kor_name}[{market_currency}] 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                                 # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                                 # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                                 print(message)
@@ -534,7 +535,7 @@ def analyze_data(trend_type):
                             # if idx == 0 and float(df_1h['close'].iloc[-1]) <= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                             # if idx == 0 and float(df_15m['close'].iloc[-1]) <= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                                 formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                                message = f"{market_currency} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                                message = f"{market_kor_name}[{market_currency}] 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                                 # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                                 # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                                 print(message)
@@ -555,7 +556,7 @@ def analyze_data(trend_type):
                                 update_tr_state(conn, '11', result[0])
 
                     # 결과 출력
-                    print(f"{market_currency} 장기 추세라인 분석 종료 시간: {end_time}")
+                    print(f"{market_kor_name}[{market_currency}] 장기 추세라인 분석 종료 시간: {end_time}")
 
                     sixteen_hour_ago = end_time - timedelta(hours=16)
 
@@ -724,13 +725,13 @@ def analyze_data(trend_type):
     except Exception as e:
         print("에러 발생:", e)
 
-# 5분마다 실행 설정
-schedule.every(5).minutes.do(analyze_data, 'long')     
+# 4분마다 실행 설정
+schedule.every(4).minutes.do(analyze_data, 'long')     
 
 # 실행
 if __name__ == "__main__":
-    print("장기 추세라인 5분마다 분석 작업을 실행합니다...")
+    print("장기 추세라인 4분마다 분석 작업을 실행합니다...")
     analyze_data('long')  # 첫 실행
     while True:
         schedule.run_pending()
-        time.sleep(5)
+        time.sleep(4)

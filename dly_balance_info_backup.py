@@ -19,9 +19,8 @@ conn = psycopg2.connect(
     port=DB_PORT
 )
 
-today = datetime.now().strftime("%Y%m%d")
-
 def analyze_data():
+    today = datetime.now().strftime("%Y%m%d")
     nickname_list = [{"cust_nm": "honey", "market_name": "UPBIT"}, {"cust_nm": "phills2", "market_name": "UPBIT"}, {"cust_nm": "mama", "market_name": "UPBIT"}, {"cust_nm": "honey", "market_name": "BITHUMB"}, {"cust_nm": "phills2", "market_name": "BITHUMB"}]
 
     for nick in nickname_list:
@@ -101,11 +100,11 @@ def analyze_data():
                         today, acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, old_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, loss_price, target_price, proc_yn, regr_id, reg_date, chgr_id, chg_date
                     ))
                 except Exception as e:
-                    print(f"[{nick['cust_nm']}-{nick['market_name']}] Error dly_balance_info inserting row {row}: {e}")
+                    print(f"{today}[{nick['cust_nm']}-{nick['market_name']}] Error dly_balance_info inserting row {row}: {e}")
 
             conn.commit()
             cur2.close()
-            print(f"[{nick['cust_nm']}-{nick['market_name']}] Insert dly_balance_info completed. ({len(result_1)} rows processed)")
+            print(f"{today}[{nick['cust_nm']}-{nick['market_name']}] Insert dly_balance_info completed. ({len(result_1)} rows processed)")
             
 
         except Exception as e:

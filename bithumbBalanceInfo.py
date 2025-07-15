@@ -1151,7 +1151,7 @@ plan_amt = 100000000
 
 users = ['phills2', 'mama', 'honey']
 market = 'BITHUMB'
-trend_type = 'mid'    
+trend_type = 'long'    
 
 # 실행
 if __name__ == "__main__":
