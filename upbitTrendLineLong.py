@@ -10,6 +10,7 @@ import slack_sdk
 from slack_sdk.errors import SlackApiError
 from scipy.stats import linregress
 import psycopg2
+import requests
 
 # 업비트 API 키 설정
 API_KEY = os.environ['UPBIT_ACCESS_KEY']
@@ -414,7 +415,7 @@ def fetch_ohlcv_with_retry(exchange, symbol, timeframe_15m, limit=200, max_retri
 
 def analyze_data(trend_type):
     # 감시할 코인
-    params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW", "ZETA/KRW", "AVAX/KRW"]
+    # params = ["BTC/KRW","XRP/KRW","ETH/KRW","ONDO/KRW","STX/KRW","SOL/KRW","SUI/KRW","XLM/KRW","HBAR/KRW","ADA/KRW","LINK/KRW","RENDER/KRW", "ZETA/KRW", "AVAX/KRW"]
     timeframe_1d = "1d"    # 일봉 데이터
     timeframe_4h = "4h"   # 4시간봉 데이터
     timeframe_1h = "1h"   # 1시간봉 데이터
@@ -424,296 +425,312 @@ def analyze_data(trend_type):
 
     try:
 
-        for i in params:
-            # 일봉 데이터 가져오기
-            # ohlcv_1d = fetch_ohlcv_with_retry(exchange, i, timeframe_1d)
-            # df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            # df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
-
-            # 4시간봉 데이터 가져오기
-            ohlcv_4h = fetch_ohlcv_with_retry(exchange, i, timeframe_4h)
+        # 업비트에서 거래 가능한 종목 목록
+        url = "https://api.upbit.com/v1/market/all?is_details=false"
+        headers = {"accept": "application/json"}
+        market_list = requests.get(url, headers=headers).json()
+        count = 0
+        for item in market_list:
+            market_str = item.get('market', '')
             
-            if ohlcv_4h is None:
-                print(f"{i} 장기 추세라인 미처리 => {end_time}")
-                continue
+            if '-' in market_str:
+                currency, market = market_str.split('-')
             
-            df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
-            
-            # 1시간봉 데이터 가져오기
-            # ohlcv_1h = fetch_ohlcv_with_retry(exchange, i, timeframe_1h)
-            # df_1h = pd.DataFrame(ohlcv_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            # df_1h['timestamp'] = pd.to_datetime(df_1h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
-            
-            # 15분봉 데이터 가져오기
-            # ohlcv_15m = fetch_ohlcv_with_retry(exchange, i, timeframe_15m)
-            # df_15m = pd.DataFrame(ohlcv_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            # df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+                if currency == 'KRW':
+                    count = count +1
+                    market_currency = f"{market}/{currency}"
+                    # 일봉 데이터 가져오기
+                    # ohlcv_1d = fetch_ohlcv_with_retry(exchange, i, timeframe_1d)
+                    # df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    # df_1d['timestamp'] = pd.to_datetime(df_1d['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
-            # 고점/저점 계산, 추세 판단, 이동평균선 및 거래량 급등 계산
-            df_4h = calculate_peaks_and_troughs(df_4h)
-            # df_1h = calculate_peaks_and_troughs(df_1h)
-            # df_15m = calculate_peaks_and_troughs(df_15m)
-            # df_15m = determine_trends(df_15m)
-            df_4h = calculate_indicators(df_4h)
-            # df_1h = calculate_indicators(df_1h)
-            # df_15m = calculate_indicators(df_15m)
-            
-            # PostgreSQL 데이터베이스에 연결
-            conn = psycopg2.connect(
-                dbname=DB_NAME,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                host=DB_HOST,
-                port=DB_PORT
-            )
+                    # 4시간봉 데이터 가져오기
+                    ohlcv_4h = fetch_ohlcv_with_retry(exchange, market_currency, timeframe_4h)
+                    
+                    if ohlcv_4h is None or len(ohlcv_4h) < 200:
+                        print(f"{market_currency} 장기 추세라인 미처리 => {end_time}")
+                        continue
+                    
+                    df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+                    
+                    # 1시간봉 데이터 가져오기
+                    # ohlcv_1h = fetch_ohlcv_with_retry(exchange, i, timeframe_1h)
+                    # df_1h = pd.DataFrame(ohlcv_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    # df_1h['timestamp'] = pd.to_datetime(df_1h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+                    
+                    # 15분봉 데이터 가져오기
+                    # ohlcv_15m = fetch_ohlcv_with_retry(exchange, i, timeframe_15m)
+                    # df_15m = pd.DataFrame(ohlcv_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    # df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
-            # 커서 생성
-            cur01 = conn.cursor()
-            cur02 = conn.cursor()
-            
-            # 신호 발생 상태 : 초기 "01"
-            signal_buy = "01"
-            signal_sell = "01"
-            
-            # 매매신호정보 조회
-            query1 = "SELECT id, tr_dtm, tr_price, tr_volume, chg_date FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' order by tr_dtm desc"
-            cur01.execute(query1, (i, ))  
-            result_01 = cur01.fetchall()
-            
-            if result_01:
-                for idx, result in enumerate(result_01):             
-                    # 매매신호정보 첫번째 대상의 돌파가보다 현재가가 크고, 거래량보다 현재 거래량이 더 큰 경우
-                    if idx == 0 and float(df_4h['close'].iloc[-1]) >= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
-                    # if idx == 0 and float(df_1h['close'].iloc[-1]) >= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
-                    # if idx == 0 and float(df_15m['close'].iloc[-1]) >= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
-                        formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
-                        # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
-                        # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
-                        print(message)
-                        
-                        result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], i, 'B')
-                        # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'B')
-                        # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B')
+                    # 고점/저점 계산, 추세 판단, 이동평균선 및 거래량 급등 계산
+                    df_4h = calculate_peaks_and_troughs(df_4h)
+                    # df_1h = calculate_peaks_and_troughs(df_1h)
+                    # df_15m = calculate_peaks_and_troughs(df_15m)
+                    # df_15m = determine_trends(df_15m)
+                    df_4h = calculate_indicators(df_4h)
+                    # df_1h = calculate_indicators(df_1h)
+                    # df_15m = calculate_indicators(df_15m)
+                    
+                    # PostgreSQL 데이터베이스에 연결
+                    conn = psycopg2.connect(
+                        dbname=DB_NAME,
+                        user=DB_USER,
+                        password=DB_PASSWORD,
+                        host=DB_HOST,
+                        port=DB_PORT
+                    )
 
-                        if result == "new":
-                            signal_buy = "02"
-                            # Slack 메시지 전송
-                            send_slack_message("#매매신호", message)
-                        elif result == "exists":
-                            signal_buy = "02"   
-                        
-                    elif signal_buy == "02":    # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
-                        
-                        update_tr_state(conn, '11', result[0])                
-
-            # 매매신호정보 조회
-            query2 = "SELECT id, tr_dtm, tr_price, tr_volume, chg_date FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' order by tr_dtm desc"
-            cur02.execute(query2, (i, ))  
-            result_02 = cur02.fetchall()
-            
-            if result_02:
-                for idx, result in enumerate(result_02):    
-                    # 매매신호정보 첫번째 대상의 이탈가보다 현재가가 작고, 거래량보다 현재 거래량이 더 큰 경우
-                    if idx == 0 and float(df_4h['close'].iloc[-1]) <= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
-                    # if idx == 0 and float(df_1h['close'].iloc[-1]) <= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
-                    # if idx == 0 and float(df_15m['close'].iloc[-1]) <= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
-                        formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
-                        # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
-                        # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
-                        print(message)
-                        
-                        result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], i, 'S')
-                        # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'S')
-                        # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S')
-                        
-                        if result == "new":
-                            signal_sell = "02"
-                            # Slack 메시지 전송
-                            send_slack_message("#매매신호", message)
-                        elif result == "exists":
-                            signal_sell = "02"   
-                        
-                    elif signal_sell == "02":   # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
-                        
-                        update_tr_state(conn, '11', result[0])
-
-            # 결과 출력
-            print(f"{i} 장기 추세라인 분석 종료 시간: {end_time}")
-
-            sixteen_hour_ago = end_time - timedelta(hours=16)
-
-            for _, row_15m in df_4h.iterrows():
-            # for _, row_15m in df_1h.iterrows():
-            # for _, row_15m in df_15m.iterrows():        
-                timestamp = row_15m['timestamp']
-                close = row_15m['close']
-                h_close = row_15m['high']
-                l_close = row_15m['low']
-                # trend = row_15m['Trend']
-                volume_surge = row_15m['Volume Surge']
-                volume = row_15m['volume']
-                ma_200 = row_15m['200MA']
-                
-                current_date = df_4h.iloc[-1]['timestamp']
-                current_price = df_4h.iloc[-1]['close']
-                current_volume = df_4h.iloc[-1]['volume']
-                prev_volume = df_4h.iloc[-2]['volume']
-                
-                # current_date = df_1h.iloc[-1]['timestamp']
-                # current_price = df_1h.iloc[-1]['close']
-                # current_volume = df_1h.iloc[-1]['volume']
-                # prev_volume = df_1h.iloc[-2]['volume']
-
-                # current_date = df_15m.iloc[-1]['timestamp']
-                # current_price = df_15m.iloc[-1]['close']
-                # current_volume = df_15m.iloc[-1]['volume']
-                # prev_volume = df_15m.iloc[-2]['volume']
-
-                trend_info = check_trend(df_4h, current_date, current_price, current_volume, prev_volume, trend_type)
-                # trend_info = check_trend(df_1h, current_date, current_price, current_volume, prev_volume, trend_type)
-                # trend_info = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
-
-                if timestamp >= sixteen_hour_ago:
-
-                    # 거래량 급등(거래량이 20일 거래량 평균보다 150% 이상) 인 경우 
-                    # if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
-                    if trend_info['result'] == "Turn Up" and volume_surge:
-                        
-                        with conn.cursor() as cur:
-                            tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
-                            
-                            # 매매신호정보 존재여부 조회
-                            query01 = "SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_dtm = %s"
-                            cur.execute(query01, (i, tr_dtm))  
-                            result_one = cur.fetchone()
-                            
-                            if result_one is None:
-                                insert_query = """
-                                    INSERT INTO TR_SIGNAL_INFO (
-                                        prd_nm, tr_tp, tr_dtm, tr_state, tr_price, tr_volume, signal_name, 
-                                        regr_id, reg_date, chgr_id, chg_date, support_price, regist_price
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                cur.execute(insert_query, (
-                                    i, "B", tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
-                                    "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
-                                    trend_info["low_prices"], trend_info["high_prices"]
-                                ))
-                                conn.commit()
-
-                            # 매매신호정보 매도 '02' 상태의 대상 조회
-                            query02 = """
-                                SELECT 
-                                    id, 
-                                    regist_price 
-                                FROM TR_SIGNAL_INFO 
-                                WHERE signal_name = %s 
-                                AND prd_nm = %s 
-                                AND tr_tp = 'S'
-                                AND tr_state = '02'
-                            """
-                            cur.execute(query02, (f"TrendLine-{trend_type}", i))
-                            results = cur.fetchall()
-
-                            regist_price = None
-
-                            for row in results:
-                                existing_id = row[0]
-                                regist_price = row[1]
-
-                                # 고가가 저항가격보다 큰 경우 업데이트(tr_state = '21')
-                                if float(regist_price) < trend_info["high_prices"]:                                
-                                    update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                                    cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
-                                    
-                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
-                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i))
-                                    
-                                    conn.commit()
-                                    
-                                    formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    message = f"{i} 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
-                                    print(message)
-                                    send_slack_message("#매매신호", message)
-                        
-                    # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
-                    elif trend_info['result'] == "Turn Down" and volume_surge:
-                        
-                        with conn.cursor() as cur:
-                            tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
-                            
-                            # 매매신호정보 존재여부 조회
-                            query01 = "SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_dtm = %s"
-                            cur.execute(query01, (i, tr_dtm))  
-                            result_one = cur.fetchone()
-
-                            if result_one is None:
-                                insert_query = """
-                                    INSERT INTO TR_SIGNAL_INFO (
-                                        prd_nm, tr_tp, tr_dtm, tr_state, tr_price, tr_volume, signal_name, 
-                                        regr_id, reg_date, chgr_id, chg_date, support_price, regist_price
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                cur.execute(insert_query, (
-                                    i, "S", tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
-                                    "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
-                                    trend_info["low_prices"], trend_info["high_prices"]
-                                ))
-                                conn.commit()
+                    # 커서 생성
+                    cur01 = conn.cursor()
+                    cur02 = conn.cursor()
+                    
+                    # 신호 발생 상태 : 초기 "01"
+                    signal_buy = "01"
+                    signal_sell = "01"
+                    
+                    # 매매신호정보 조회
+                    query1 = "SELECT id, tr_dtm, tr_price, tr_volume, chg_date FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01' order by tr_dtm desc"
+                    cur01.execute(query1, (market_currency, ))  
+                    result_01 = cur01.fetchall()
+                    
+                    if result_01:
+                        for idx, result in enumerate(result_01):             
+                            # 매매신호정보 첫번째 대상의 돌파가보다 현재가가 크고, 거래량보다 현재 거래량이 더 큰 경우
+                            if idx == 0 and float(df_4h['close'].iloc[-1]) >= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                            # if idx == 0 and float(df_1h['close'].iloc[-1]) >= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                            # if idx == 0 and float(df_15m['close'].iloc[-1]) >= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                                formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                                message = f"{market_currency} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                                # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                                # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                                print(message)
                                 
-                            # 매매신호정보 매수 '02' 상태의 대상 조회
-                            query02 = """
-                                SELECT 
-                                    id, 
-                                    support_price 
-                                FROM TR_SIGNAL_INFO 
-                                WHERE signal_name = %s 
-                                AND prd_nm = %s 
-                                AND tr_tp = 'B'
-                                AND tr_state = '02'
-                            """
-                            cur.execute(query02, (f"TrendLine-{trend_type}", i))
-                            results = cur.fetchall()
-                            
-                            support_price = None
+                                result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'B')
+                                # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'B')
+                                # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B')
 
-                            for row in results:
-                                existing_id = row[0]
-                                support_price = row[1]
-
-                                # 지지가격보다 저가가 작은 경우 업데이트(tr_state = '22')
-                                if float(support_price) > trend_info["low_prices"]:                                
-                                    update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
-                                    cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
-                                    
-                                    update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
-                                    cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", i))
-                                    
-                                    conn.commit()
-                                    
-                                    formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    message = f"{i} 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
-                                    print(message)
+                                if result == "new":
+                                    signal_buy = "02"
+                                    # Slack 메시지 전송
                                     send_slack_message("#매매신호", message)
+                                elif result == "exists":
+                                    signal_buy = "02"   
+                                
+                            elif signal_buy == "02":    # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
+                                
+                                update_tr_state(conn, '11', result[0])                
+
+                    # 매매신호정보 조회
+                    query2 = "SELECT id, tr_dtm, tr_price, tr_volume, chg_date FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01' order by tr_dtm desc"
+                    cur02.execute(query2, (market_currency, ))  
+                    result_02 = cur02.fetchall()
+                    
+                    if result_02:
+                        for idx, result in enumerate(result_02):    
+                            # 매매신호정보 첫번째 대상의 이탈가보다 현재가가 작고, 거래량보다 현재 거래량이 더 큰 경우
+                            if idx == 0 and float(df_4h['close'].iloc[-1]) <= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                            # if idx == 0 and float(df_1h['close'].iloc[-1]) <= result[2] and float(df_1h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                            # if idx == 0 and float(df_15m['close'].iloc[-1]) <= result[2] and float(df_15m['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                                formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+                                message = f"{market_currency} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                                # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_1h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                                # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                                print(message)
+                                
+                                result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'S')
+                                # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'S')
+                                # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S')
+                                
+                                if result == "new":
+                                    signal_sell = "02"
+                                    # Slack 메시지 전송
+                                    send_slack_message("#매매신호", message)
+                                elif result == "exists":
+                                    signal_sell = "02"   
+                                
+                            elif signal_sell == "02":   # 신호 발생 상태가 변경("02") 후, 나머지 대상 tr_state = '11' 변경 처리
+                                
+                                update_tr_state(conn, '11', result[0])
+
+                    # 결과 출력
+                    print(f"{market_currency} 장기 추세라인 분석 종료 시간: {end_time}")
+
+                    sixteen_hour_ago = end_time - timedelta(hours=16)
+
+                    for _, row_15m in df_4h.iterrows():
+                    # for _, row_15m in df_1h.iterrows():
+                    # for _, row_15m in df_15m.iterrows():        
+                        timestamp = row_15m['timestamp']
+                        close = row_15m['close']
+                        h_close = row_15m['high']
+                        l_close = row_15m['low']
+                        # trend = row_15m['Trend']
+                        volume_surge = row_15m['Volume Surge']
+                        volume = row_15m['volume']
+                        ma_200 = row_15m['200MA']
                         
-            # 연결 종료
-            cur01.close()
-            cur02.close()
-            conn.close()
+                        current_date = df_4h.iloc[-1]['timestamp']
+                        current_price = df_4h.iloc[-1]['close']
+                        current_volume = df_4h.iloc[-1]['volume']
+                        prev_volume = df_4h.iloc[-2]['volume']
+                        
+                        # current_date = df_1h.iloc[-1]['timestamp']
+                        # current_price = df_1h.iloc[-1]['close']
+                        # current_volume = df_1h.iloc[-1]['volume']
+                        # prev_volume = df_1h.iloc[-2]['volume']
+
+                        # current_date = df_15m.iloc[-1]['timestamp']
+                        # current_price = df_15m.iloc[-1]['close']
+                        # current_volume = df_15m.iloc[-1]['volume']
+                        # prev_volume = df_15m.iloc[-2]['volume']
+
+                        trend_info = check_trend(df_4h, current_date, current_price, current_volume, prev_volume, trend_type)
+                        # trend_info = check_trend(df_1h, current_date, current_price, current_volume, prev_volume, trend_type)
+                        # trend_info = check_trend(df_15m, current_date, current_price, current_volume, prev_volume, trend_type)
+
+                        if timestamp >= sixteen_hour_ago:
+
+                            # 거래량 급등(거래량이 20일 거래량 평균보다 150% 이상) 인 경우 
+                            # if trend_info['result'] == "Turn Up" and volume_surge and trend == "Uptrend":
+                            if trend_info['result'] == "Turn Up" and volume_surge:
+                                
+                                with conn.cursor() as cur:
+                                    tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
+                                    
+                                    # 매매신호정보 존재여부 조회
+                                    query01 = "SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'B' AND tr_dtm = %s"
+                                    cur.execute(query01, (market_currency, tr_dtm))  
+                                    result_one = cur.fetchone()
+                                    
+                                    if result_one is None:
+                                        insert_query = """
+                                            INSERT INTO TR_SIGNAL_INFO (
+                                                prd_nm, tr_tp, tr_dtm, tr_state, tr_price, tr_volume, signal_name, 
+                                                regr_id, reg_date, chgr_id, chg_date, support_price, regist_price
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        cur.execute(insert_query, (
+                                            market_currency, "B", tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
+                                            "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
+                                            trend_info["low_prices"], trend_info["high_prices"]
+                                        ))
+                                        conn.commit()
+
+                                    # 매매신호정보 매도 '02' 상태의 대상 조회
+                                    query02 = """
+                                        SELECT 
+                                            id, 
+                                            regist_price 
+                                        FROM TR_SIGNAL_INFO 
+                                        WHERE signal_name = %s 
+                                        AND prd_nm = %s 
+                                        AND tr_tp = 'S'
+                                        AND tr_state = '02'
+                                    """
+                                    cur.execute(query02, (f"TrendLine-{trend_type}", market_currency))
+                                    results = cur.fetchall()
+
+                                    regist_price = None
+
+                                    for row in results:
+                                        existing_id = row[0]
+                                        regist_price = row[1]
+
+                                        # 고가가 저항가격보다 큰 경우 업데이트(tr_state = '21')
+                                        if float(regist_price) < trend_info["high_prices"]:                                
+                                            update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '21', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                                            cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
+                                            
+                                            update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'S' AND tr_state = '01'"
+                                            cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", market_currency))
+                                            
+                                            conn.commit()
+                                            
+                                            formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                            message = f"{market_currency} 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
+                                            print(message)
+                                            send_slack_message("#매매신호", message)
+                                
+                            # elif trend_info['result'] == "Turn Down" and volume_surge and trend == "Downtrend":
+                            elif trend_info['result'] == "Turn Down" and volume_surge:
+                                
+                                with conn.cursor() as cur:
+                                    tr_dtm = timestamp.strftime('%Y%m%d%H%M%S')
+                                    
+                                    # 매매신호정보 존재여부 조회
+                                    query01 = "SELECT id FROM TR_SIGNAL_INFO WHERE signal_name = 'TrendLine-"+trend_type+"' AND prd_nm = %s AND tr_tp = 'S' AND tr_dtm = %s"
+                                    cur.execute(query01, (market_currency, tr_dtm))  
+                                    result_one = cur.fetchone()
+
+                                    if result_one is None:
+                                        insert_query = """
+                                            INSERT INTO TR_SIGNAL_INFO (
+                                                prd_nm, tr_tp, tr_dtm, tr_state, tr_price, tr_volume, signal_name, 
+                                                regr_id, reg_date, chgr_id, chg_date, support_price, regist_price
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        cur.execute(insert_query, (
+                                            market_currency, "S", tr_dtm, "01", h_close, volume, f"TrendLine-{trend_type}",
+                                            "AUTO_SIGNAL", datetime.now(), "AUTO_SIGNAL", datetime.now(),
+                                            trend_info["low_prices"], trend_info["high_prices"]
+                                        ))
+                                        conn.commit()
+                                        
+                                    # 매매신호정보 매수 '02' 상태의 대상 조회
+                                    query02 = """
+                                        SELECT 
+                                            id, 
+                                            support_price 
+                                        FROM TR_SIGNAL_INFO 
+                                        WHERE signal_name = %s 
+                                        AND prd_nm = %s 
+                                        AND tr_tp = 'B'
+                                        AND tr_state = '02'
+                                    """
+                                    cur.execute(query02, (f"TrendLine-{trend_type}", market_currency))
+                                    results = cur.fetchall()
+                                    
+                                    support_price = None
+
+                                    for row in results:
+                                        existing_id = row[0]
+                                        support_price = row[1]
+
+                                        # 지지가격보다 저가가 작은 경우 업데이트(tr_state = '22')
+                                        if float(support_price) > trend_info["low_prices"]:                                
+                                            update_query1 = "UPDATE TR_SIGNAL_INFO SET tr_state = '22', u_tr_price = %s, chg_date = %s WHERE id = %s"
+                                            cur.execute(update_query1, (float(current_price), datetime.now(), existing_id))
+                                            
+                                            update_query2 = "UPDATE TR_SIGNAL_INFO SET tr_state = '11', chg_date = %s WHERE signal_name = %s AND prd_nm = %s AND tr_tp = 'B' AND tr_state = '01'"
+                                            cur.execute(update_query2, (datetime.now(), f"TrendLine-{trend_type}", market_currency))
+                                            
+                                            conn.commit()
+                                            
+                                            formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                            message = f"{market_currency} 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
+                                            print(message)
+                                            send_slack_message("#매매신호", message)
+                                
+                    # 연결 종료
+                    cur01.close()
+                    cur02.close()
+                    conn.close()
+                    print(f"count : {count}")
+            else:
+                print(f"Unexpected market format: {market_str}")                      
 
     except Exception as e:
         print("에러 발생:", e)
 
-# 1분마다 실행 설정
-schedule.every(1).minutes.do(analyze_data, 'long')     
+# 5분마다 실행 설정
+schedule.every(5).minutes.do(analyze_data, 'long')     
 
 # 실행
 if __name__ == "__main__":
-    print("장기 추세라인 1분마다 분석 작업을 실행합니다...")
+    print("장기 추세라인 5분마다 분석 작업을 실행합니다...")
     analyze_data('long')  # 첫 실행
     while True:
         schedule.run_pending()
-        time.sleep(1)
+        time.sleep(5)
