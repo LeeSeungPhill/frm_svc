@@ -210,7 +210,7 @@ def calculate_indicators(data):
 
     return data
 
-def update_tr_state(conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None):
+def update_tr_state(conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None, market_kor_name=None):
     with conn.cursor() as cur:
         
         if prd_nm:
@@ -310,7 +310,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
 
                             conn.commit()
 
-                            message = f"{prd_nm} 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                            message = f"{market_kor_name}[{prd_nm}] 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                             print(message)
                             send_slack_message("#매매신호", message)
                     
@@ -369,7 +369,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                     conn.commit()
                                     
                                     formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    message = f"{prd_nm} 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                                    message = f"{market_kor_name}[{prd_nm}] 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                                     print(message)
                                     send_slack_message("#매매신호", message)
                             
@@ -508,7 +508,7 @@ def analyze_data(trend_type):
                                 # message = f"{i} 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                                 print(message)
                                 
-                                result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'B')
+                                result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'B', market_kor_name)
                                 # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'B')
                                 # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'B')
 
@@ -540,7 +540,7 @@ def analyze_data(trend_type):
                                 # message = f"{i} 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_15m['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                                 print(message)
                                 
-                                result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'S')
+                                result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'S', market_kor_name)
                                 # result = update_tr_state(conn, '02', result[0], float(df_1h['close'].iloc[-1]), result[2], i, 'S')
                                 # result = update_tr_state(conn, '02', result[0], float(df_15m['close'].iloc[-1]), result[2], i, 'S')
                                 
@@ -725,13 +725,13 @@ def analyze_data(trend_type):
     except Exception as e:
         print("에러 발생:", e)
 
-# 4분마다 실행 설정
-schedule.every(4).minutes.do(analyze_data, 'long')     
+# 1분마다 실행 설정
+schedule.every(1).minutes.do(analyze_data, 'long')     
 
 # 실행
 if __name__ == "__main__":
-    print("장기 추세라인 4분마다 분석 작업을 실행합니다...")
+    print("장기 추세라인 1분마다 분석 작업을 실행합니다...")
     analyze_data('long')  # 첫 실행
     while True:
         schedule.run_pending()
-        time.sleep(4)
+        time.sleep(1)
