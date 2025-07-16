@@ -1131,7 +1131,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     0,
                     volume,
                     0,
-                    0,
+                    volume,
                     'Y',
                     user_id,
                     datetime.now(),
