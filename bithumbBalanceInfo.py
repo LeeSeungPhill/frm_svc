@@ -1121,6 +1121,51 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                 time.sleep(0.1)
             
             else:
+                
+                ins_param1 = (
+                    cust_info['acct_no'],
+                    cust_info['cust_num'],
+                    cust_info['market_name'],
+                    "KRW-"+name,
+                    0,
+                    0,
+                    volume,
+                    0,
+                    0,
+                    'Y',
+                    user_id,
+                    datetime.now(),
+                    user_id,
+                    datetime.now(),
+                )
+
+                insert1 = """
+                    INSERT INTO balance_info (
+                        acct_no, cust_num, market_name, prd_nm,
+                        hold_price, hold_volume, hold_amt,
+                        current_price, current_amt,
+                        proc_yn, regr_id, reg_date, chgr_id, chg_date
+                    )
+                    VALUES (%s, %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s,
+                            %s, %s, %s, %s, %s)
+                    ON CONFLICT (acct_no, cust_num, market_name, prd_nm)
+                    DO UPDATE SET
+                        hold_price = EXCLUDED.hold_price,
+                        hold_volume = EXCLUDED.hold_volume,
+                        hold_amt = EXCLUDED.hold_amt,
+                        current_price = EXCLUDED.current_price,
+                        current_amt = EXCLUDED.current_amt,
+                        proc_yn = EXCLUDED.proc_yn,
+                        chgr_id = EXCLUDED.chgr_id,
+                        chg_date = EXCLUDED.chg_date;
+                """
+
+                cur03.execute(insert1, ins_param1)
+                conn.commit()
+                cur03.close()
+            
                 timezone = pytz.timezone('Asia/Seoul')
                 end_time = datetime.now(timezone)
                 print(f"{name} : {volume}, 잔고정보 분석 종료 시간 : {end_time}")
