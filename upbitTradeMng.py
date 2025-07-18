@@ -129,11 +129,12 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
                                 executed_vol,
                                 remaining_vol,
                                 paid_fee,
+                                ord_type,
                                 regr_id, 
                                 reg_date, 
                                 chgr_id, 
                                 chg_date
-                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
                         ins_param1 = (
@@ -143,13 +144,14 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
                             item['uuid'],
                             item['market'],
                             '01' if item['side'] == 'bid' else '02',
-                            item['state'],
+                            'done' if item['ord_type'] == 'price' or item['ord_type'] == 'market' else item['state'],
                             price,
                             vol,
                             Decimal(item['executed_funds']),
                             Decimal(item['executed_volume']),
                             remaining_vol,
                             Decimal(item['paid_fee']),
+                            item['ord_type'],
                             user_id,
                             datetime.now(),
                             user_id,
@@ -163,6 +165,134 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
 
     except Exception as e:
         print(f"[close_order - 전체 예외] 함수 실행 중 예외 발생: {e}")    
+
+def open_order(access_key, secret_key, cust_num, user_id, conn):
+    
+    try:
+        # 업비트에서 거래 가능한 종목 목록
+        url = "https://api.upbit.com/v1/market/all?is_details=false"
+        headers = {"accept": "application/json"}
+        market_list = requests.get(url, headers=headers).json()
+        
+        for item in market_list:
+            params = {
+                'market': item['market'],
+                'states[]': ['wait', 'watch']
+            }
+            query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
+
+            m = hashlib.sha512()
+            m.update(query_string)
+            query_hash = m.hexdigest()
+
+            payload = {
+                'access_key': access_key,
+                'nonce': str(uuid.uuid4()),
+                'query_hash': query_hash,
+                'query_hash_alg': 'SHA512',
+            }
+
+            jwt_token = jwt.encode(payload, secret_key)
+            authorization = 'Bearer {}'.format(jwt_token)
+            headers = {
+                'Authorization': authorization,
+            }
+
+            # 체결 대기 주문 조회
+            raw_order_list = requests.get(api_url + "/v1/orders/open", params=params, headers=headers).json()             
+
+            if raw_order_list is not None:
+                
+                for idx, item in enumerate(raw_order_list):
+
+                    cur01 = conn.cursor()
+                    result_1 = []
+
+                    # 매매관리정보 존재여부 조회
+                    select1 = """
+                        SELECT 
+                            ord_no
+                        FROM trade_mng 
+                        WHERE market_name = 'UPBIT'
+                        AND cust_num = %s
+                        AND prd_nm = %s
+                        AND (ord_no = %s OR orgn_ord_no = %s)
+
+                        UNION ALL
+
+                        SELECT 
+                            ord_no
+                        FROM trade_mng_hist
+                        WHERE market_name = 'UPBIT'
+                        AND cust_num = %s
+                        AND prd_nm = %s
+                        AND (ord_no = %s OR orgn_ord_no = %s)
+                    """
+                    
+                    param1 = (cust_num, item['market'], item['uuid'], item['uuid'], cust_num, item['market'], item['uuid'], item['uuid'])
+                    cur01.execute(select1, param1)  
+                    result_1 = cur01.fetchall()
+
+                    if len(result_1) < 1:
+
+                        cur02 = conn.cursor()
+                        
+                        price = Decimal(item['price'])
+                        vol = Decimal(item['volume'])
+                        remaining_vol = Decimal(item['remaining_volume'])
+                        
+                        # 매매관리정보 생성
+                        insert1 = """
+                            INSERT INTO trade_mng (
+                                cust_num, 
+                                market_name, 
+                                ord_dtm, 
+                                ord_no, 
+                                prd_nm, 
+                                ord_tp, 
+                                ord_state, 
+                                ord_price, 
+                                ord_vol, 
+                                ord_amt,
+                                executed_vol,
+                                remaining_vol,
+                                paid_fee,
+                                ord_type,
+                                regr_id, 
+                                reg_date, 
+                                chgr_id, 
+                                chg_date
+                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        
+                        ins_param1 = (
+                            cust_num,
+                            'UPBIT',
+                            datetime.fromisoformat(item['created_at']).strftime("%Y%m%d%H%M%S"),
+                            item['uuid'],
+                            item['market'],
+                            '01' if item['side'] == 'bid' else '02',
+                            'done' if item['ord_type'] == 'price' or item['ord_type'] == 'market' else item['state'],
+                            price,
+                            vol,
+                            Decimal(item['executed_funds']),
+                            Decimal(item['executed_volume']),
+                            remaining_vol,
+                            Decimal(item['paid_fee']),
+                            item['ord_type'],
+                            user_id,
+                            datetime.now(),
+                            user_id,
+                            datetime.now()
+                        )
+                        cur02.execute(insert1, ins_param1)
+                        conn.commit()
+                        cur02.close()
+
+                    cur01.close()  
+                
+    except Exception as e:
+        print(f"[close_order - 전체 예외] 함수 실행 중 예외 발생: {e}")  
 
 def analyze_data(user):
     
@@ -198,9 +328,11 @@ def analyze_data(user):
     
         user_id = "TRADE_MNG"
         start_dt = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
-        # start_dt = "20241104"
+        # start_dt = "20250717"
         # 종료된 주문의 매매관리정보 미존재 대상 매매관리정보 생성 처리 
         close_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], start_dt, user_id, conn)
+        # 체결대기 주문의 매매관리정보 미존재 대상 매매관리정보 생성 처리
+        open_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], user_id, conn)
         
         timezone = pytz.timezone('Asia/Seoul')
         end_time = datetime.now(timezone)

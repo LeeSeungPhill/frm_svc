@@ -23,10 +23,10 @@ DB_PASSWORD = "asdf1234"
 DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
-def close_order(access_key, secret_key, cust_num, user_id, conn):
+def ordno_order(access_key, secret_key, cust_num, user_id, conn):
     try:
         # 빗썸 거래 체결 주문번호
-        param = dict( uuid='C0758000000054828603' )
+        param = dict( uuid='C0758000000097207818' )
         
         cur01 = conn.cursor()
         result_1 = []
@@ -114,11 +114,12 @@ def close_order(access_key, secret_key, cust_num, user_id, conn):
                         executed_vol,
                         remaining_vol,
                         paid_fee,
+                        ord_type,
                         regr_id, 
                         reg_date, 
                         chgr_id, 
                         chg_date
-                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 
                 ins_param1 = (
@@ -128,13 +129,14 @@ def close_order(access_key, secret_key, cust_num, user_id, conn):
                     response['uuid'],
                     response['market'],
                     '01' if response['side'] == 'bid' else '02',
-                    response['state'],
+                    'done' if response['ord_type'] == 'price' or response['ord_type'] == 'market' else response['state'],
                     price,
                     vol,
                     total_funds,
                     total_volume,
                     remaining_vol,
                     Decimal(response['paid_fee']),
+                    response['ord_type'],
                     user_id,
                     datetime.now(),
                     user_id,
@@ -182,7 +184,8 @@ def analyze_data(user):
     if len(cust_info) > 0:
     
         user_id = "TRADE_MNG"
-        close_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], user_id, conn)
+        # 개별 주문 조회 매매관리정보 생성
+        ordno_order(cust_info['access_key'], cust_info['secret_key'], cust_info['cust_num'], user_id, conn)
         
         timezone = pytz.timezone('Asia/Seoul')
         end_time = datetime.now(timezone)
