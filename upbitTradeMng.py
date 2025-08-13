@@ -34,9 +34,9 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
         headers = {"accept": "application/json"}
         market_list = requests.get(url, headers=headers).json()
         
-        for item in market_list:
+        for m in market_list:
             params = {
-                'market': item['market'],           # 마켓 ID
+                'market': m['market'],           # 마켓 ID
                 'states[]': ['done', 'cancel'],
                 "start_time": start_dt,             # 조회시작일 이후 7일까지
             }
@@ -113,6 +113,37 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
                             vol = Decimal(item['volume'])
                             remaining_vol = Decimal(item['remaining_volume'])
 
+                        # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                        hold_price = 0
+                        hold_vol = 0
+                        
+                        try:
+                            payload = {
+                                'access_key': access_key,
+                                'nonce': str(uuid.uuid4()),
+                            }
+
+                            jwt_token = jwt.encode(payload, secret_key)
+                            authorization = 'Bearer {}'.format(jwt_token)
+                            headers = {
+                                'Authorization': authorization,
+                            }
+
+                            # 잔고 조회
+                            accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                        except Exception as e:
+                            print(f"[잔고 조회 예외] 오류 발생: {e}")
+                            accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                        
+                        for a in accounts:
+                            name = "KRW-"+a['currency']
+                            
+                            # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                            if item['market'] == name:
+                                hold_price = float(a['avg_buy_price'])                        # 평균단가    
+                                hold_vol = float(a['balance']) + float(a['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량    
+
                         # 매매관리정보 생성
                         insert1 = """
                             INSERT INTO trade_mng (
@@ -128,13 +159,15 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
                                 ord_amt,
                                 executed_vol,
                                 remaining_vol,
+                                hold_price,
+                                hold_vol,
                                 paid_fee,
                                 ord_type,
                                 regr_id, 
                                 reg_date, 
                                 chgr_id, 
                                 chg_date
-                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
                         ins_param1 = (
@@ -150,6 +183,8 @@ def close_order(access_key, secret_key, cust_num, start_dt, user_id, conn):
                             Decimal(item['executed_funds']),
                             Decimal(item['executed_volume']),
                             remaining_vol,
+                            hold_price,
+                            hold_vol,
                             Decimal(item['paid_fee']),
                             item['ord_type'],
                             user_id,
@@ -174,9 +209,9 @@ def open_order(access_key, secret_key, cust_num, user_id, conn):
         headers = {"accept": "application/json"}
         market_list = requests.get(url, headers=headers).json()
         
-        for item in market_list:
+        for m in market_list:
             params = {
-                'market': item['market'],
+                'market': m['market'],
                 'states[]': ['wait', 'watch']
             }
             query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
@@ -235,6 +270,37 @@ def open_order(access_key, secret_key, cust_num, user_id, conn):
 
                     if len(result_1) < 1:
 
+                        # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                        hold_price = 0
+                        hold_vol = 0
+                        
+                        try:
+                            payload = {
+                                'access_key': access_key,
+                                'nonce': str(uuid.uuid4()),
+                            }
+
+                            jwt_token = jwt.encode(payload, secret_key)
+                            authorization = 'Bearer {}'.format(jwt_token)
+                            headers = {
+                                'Authorization': authorization,
+                            }
+
+                            # 잔고 조회
+                            accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                        except Exception as e:
+                            print(f"[잔고 조회 예외] 오류 발생: {e}")
+                            accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                        
+                        for a in accounts:
+                            name = "KRW-"+a['currency']
+                            
+                            # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                            if item['market'] == name:
+                                hold_price = float(a['avg_buy_price'])                        # 평균단가    
+                                hold_vol = float(a['balance']) + float(a['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량    
+
                         cur02 = conn.cursor()
                         
                         price = Decimal(item['price'])
@@ -256,13 +322,15 @@ def open_order(access_key, secret_key, cust_num, user_id, conn):
                                 ord_amt,
                                 executed_vol,
                                 remaining_vol,
+                                hold_price,
+                                hold_vol,
                                 paid_fee,
                                 ord_type,
                                 regr_id, 
                                 reg_date, 
                                 chgr_id, 
                                 chg_date
-                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
                         ins_param1 = (
@@ -278,6 +346,8 @@ def open_order(access_key, secret_key, cust_num, user_id, conn):
                             Decimal(item['executed_funds']),
                             Decimal(item['executed_volume']),
                             remaining_vol,
+                            hold_price,
+                            hold_vol,
                             Decimal(item['paid_fee']),
                             item['ord_type'],
                             user_id,
@@ -371,12 +441,13 @@ users = ['phills2', 'mama', 'honey']
 
 # 실행
 if __name__ == "__main__":
-    print("매매관리정보 현행화 작업을 매일 실행합니다...")
+    print("매매관리정보 현행화 작업을 1시간마다 실행합니다...")
 
     for user in users:
         analyze_data(user)
+        schedule.every(60).minutes.do(analyze_data, user)
         # 매일 오전 9시에 실행되도록 스케줄 설정
-        schedule.every().day.at("09:00").do(analyze_data, user)
+        # schedule.every().day.at("09:00").do(analyze_data, user)
 
     while True:
         schedule.run_pending()
