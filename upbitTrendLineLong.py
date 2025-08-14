@@ -11,6 +11,9 @@ from slack_sdk.errors import SlackApiError
 from scipy.stats import linregress
 import psycopg2
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 업비트 API 키 설정
 API_KEY = os.environ['UPBIT_ACCESS_KEY']
@@ -650,7 +653,7 @@ def analyze_data(trend_type):
                                             conn.commit()
                                             
                                             formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                            message = f"{market_currency} 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
+                                            message = f"{market_kor_name}[{market_currency}] 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
                                             print(message)
                                             send_slack_message("#매매신호", message)
                                 
@@ -710,7 +713,7 @@ def analyze_data(trend_type):
                                             conn.commit()
                                             
                                             formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                            message = f"{market_currency} 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
+                                            message = f"{market_kor_name}[{market_currency}] 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} " 
                                             print(message)
                                             send_slack_message("#매매신호", message)
                                 
