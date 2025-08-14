@@ -738,11 +738,15 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
             print(f"[잔고 조회 예외] 오류 발생: {e}")
             accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
         
+        if not isinstance(accounts, list):
+            print(f"[잔고 조회] 리스트 형태 아님: {accounts}")
+            accounts = []
+            
         trade_cash = 0
         
         for item in accounts:
-            if "KRW" == item['currency']:  
-                trade_cash = float(item['balance'])    # 주문가능 금액
+            if isinstance(item, dict) and item.get("currency") == "KRW":
+                trade_cash = float(item.get("balance", 0))    # 주문가능 금액
 
         # 주문가능 금액이 매매예정금액보다 큰 경우 매수 진행
         if plan_amt < trade_cash:
