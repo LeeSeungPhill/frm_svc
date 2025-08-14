@@ -321,6 +321,38 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
 
                 if ord_state == 'done':
                     if chk_ord[5] == order_status['uuid']:
+                        
+                        # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                        price = 0
+                        volume = 0
+                        
+                        try:
+                            payload = {
+                                'access_key': access_key,
+                                'nonce': str(uuid.uuid4()),
+                                'timestamp': round(time.time() * 1000)
+                            }
+
+                            jwt_token = jwt.encode(payload, secret_key)
+                            authorization = 'Bearer {}'.format(jwt_token)
+                            headers = {
+                                'Authorization': authorization,
+                            }
+
+                            # 잔고 조회
+                            accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                        except Exception as e:
+                            print(f"[잔고 조회 예외] 오류 발생: {e}")
+                            accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                        
+                        for item in accounts:
+                            name = "KRW-"+item['currency']
+                            
+                            # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                            if chk_ord[1] == name:
+                                price = float(item['avg_buy_price'])                        # 평균단가    
+                                volume = float(item['balance']) + float(item['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
 
                         cur02 = conn.cursor()
                         upd_param1 = (
@@ -330,6 +362,8 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                             order_status['state'],
                             Decimal(order_status['executed_volume']),
                             Decimal(order_status['remaining_volume']),
+                            price,
+                            volume,
                             Decimal(order_status['paid_fee']),
                             user_id,
                             datetime.now(),
@@ -343,6 +377,8 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                         ord_state = %s,
                                         executed_vol = %s,
                                         remaining_vol = %s,
+                                        hold_price = %s,
+                                        hold_vol = %s,
                                         paid_fee = %s,
                                         chgr_id = %s,
                                         chg_date = %s
@@ -354,12 +390,46 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                 
                 elif ord_state == 'cancel':
                     if chk_ord[5] == order_status['uuid']:
+                        
+                        # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                        price = 0
+                        volume = 0
+                        
+                        try:
+                            payload = {
+                                'access_key': access_key,
+                                'nonce': str(uuid.uuid4()),
+                                'timestamp': round(time.time() * 1000)
+                            }
+
+                            jwt_token = jwt.encode(payload, secret_key)
+                            authorization = 'Bearer {}'.format(jwt_token)
+                            headers = {
+                                'Authorization': authorization,
+                            }
+
+                            # 잔고 조회
+                            accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                        except Exception as e:
+                            print(f"[잔고 조회 예외] 오류 발생: {e}")
+                            accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                        
+                        for item in accounts:
+                            name = "KRW-"+item['currency']
+                            
+                            # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                            if chk_ord[1] == name:
+                                price = float(item['avg_buy_price'])                        # 평균단가    
+                                volume = float(item['balance']) + float(item['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
 
                         cur02 = conn.cursor()
                         upd_param1 = (
                             order_status['state'],
                             Decimal(order_status['executed_volume']),
                             Decimal(order_status['remaining_volume']),
+                            price,
+                            volume,
                             Decimal(order_status['paid_fee']),
                             user_id,
                             datetime.now(),
@@ -370,6 +440,8 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                         ord_state = %s,
                                         executed_vol = %s,
                                         remaining_vol = %s,
+                                        hold_price = %s,
+                                        hold_vol = %s,
                                         paid_fee = %s,
                                         chgr_id = %s,
                                         chg_date = %s
@@ -412,11 +484,46 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                         if chk_ord[5] == response['uuid']:
 
                             if chk_ord[4] != Decimal(response['remaining_volume']) or chk_ord[3] != Decimal(response['executed_volume']):
+                                
+                                # 잔고조회의 매수평균가, 보유수량 가져오기                     
+                                price = 0
+                                volume = 0
+                                
+                                try:
+                                    payload = {
+                                        'access_key': access_key,
+                                        'nonce': str(uuid.uuid4()),
+                                        'timestamp': round(time.time() * 1000)
+                                    }
+
+                                    jwt_token = jwt.encode(payload, secret_key)
+                                    authorization = 'Bearer {}'.format(jwt_token)
+                                    headers = {
+                                        'Authorization': authorization,
+                                    }
+
+                                    # 잔고 조회
+                                    accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+
+                                except Exception as e:
+                                    print(f"[잔고 조회 예외] 오류 발생: {e}")
+                                    accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+                                
+                                for item in accounts:
+                                    name = "KRW-"+item['currency']
+                                    
+                                    # 매매관리정보의 상품코드과 잔고조회의 상품코드가 동일한 경우
+                                    if chk_ord[1] == name:
+                                        price = float(item['avg_buy_price'])                        # 평균단가    
+                                        volume = float(item['balance']) + float(item['locked'])     # 보유수량 = 주문가능 수량 + 주문묶여있는 수량
+                                        
                                 cur02 = conn.cursor()
                                 upd_param1 = (
                                     response['state'],
                                     Decimal(response['executed_volume']),
                                     Decimal(response['remaining_volume']),
+                                    price,
+                                    volume,
                                     Decimal(response['paid_fee']),
                                     user_id,
                                     datetime.now(),
@@ -427,6 +534,8 @@ def open_order(access_key, secret_key, cust_num, market_name, user_id, conn):
                                                 ord_state = %s,
                                                 executed_vol = %s,
                                                 remaining_vol = %s,
+                                                hold_price = %s,
+                                                hold_vol = %s,
                                                 paid_fee = %s,
                                                 chgr_id = %s,
                                                 chg_date = %s
