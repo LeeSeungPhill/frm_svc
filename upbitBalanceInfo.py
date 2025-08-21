@@ -615,11 +615,11 @@ def proc_trade_mng_hist(cust_num, market_name, conn):
         insert1 = """
             INSERT INTO trade_mng_hist (
                 cust_num, market_name, hold_price, hold_vol, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
-                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, paid_fee, regr_id, reg_date, chgr_id, chg_date
+                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, paid_fee, ord_type, regr_id, reg_date, chgr_id, chg_date
             )
             SELECT 
                 cust_num, market_name, hold_price, hold_vol, ord_dtm, ord_no, orgn_ord_no, prd_nm, ord_tp, ord_state, ord_count, ord_expect_totamt, ord_price, ord_vol, ord_amt,
-                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, paid_fee, regr_id, reg_date, chgr_id, chg_date
+                cut_price, cut_rate, cut_amt, goal_price, goal_rate, goal_amt, margin_vol, executed_vol, remaining_vol, paid_fee, ord_type, regr_id, reg_date, chgr_id, chg_date
             FROM trade_mng A
             WHERE A.cust_num = %s
             AND A.market_name = %s
