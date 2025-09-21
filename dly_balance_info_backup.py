@@ -7,7 +7,7 @@ import time
 DB_NAME = "universe"
 DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
-DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
 # PostgreSQL 데이터베이스에 연결
@@ -112,12 +112,12 @@ def analyze_data():
         
 # 실행
 if __name__ == "__main__":
-    print("잔고정보 백업 작업을 매일 실행합니다...")
+    # print("잔고정보 백업 작업을 매일 실행합니다...")
 
     analyze_data()
     # 매일 오전 9시에 실행되도록 스케줄 설정
-    schedule.every().day.at("09:00").do(analyze_data)
+    # schedule.every().day.at("09:00").do(analyze_data)
 
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)

@@ -22,8 +22,14 @@ api_url = os.getenv("UPBIT_API")
 DB_NAME = "universe"
 DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
-DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
+
+def format_number(value):
+    try:
+        return f"{float(value):,.2f}" if isinstance(value, float) else f"{int(value):,}"
+    except:
+        return str(value)
 
 def candle_minutes_info(market, in_minutes):
 
@@ -678,10 +684,10 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
     
     if sys.platform == "win32":
         python_executable = "python"
-        script_path = "C:\\Project\\frm_batch_svc\\main.py"
+        script_path = "C:\\Project\\frm_api_svc\\main.py"
     else:
         python_executable = "python3"
-        script_path = "/Users/phillseungkorea/Documents/frm_batch_svc/main.py"
+        script_path = "/home/terra/work/frm_api_svc/main.py"
 
     cur01 = conn.cursor()
 
@@ -728,11 +734,11 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
             accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
 
         except Exception as e:
-            print(f"[잔고 조회 예외] 오류 발생: {e}")
+            print(f"[{user}-잔고 조회 예외] 오류 발생: {e}")
             accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
         
         if not isinstance(accounts, list):
-            print(f"[잔고 조회] 리스트 형태 아님: {accounts}")
+            print(f"[{user}-잔고 조회] 리스트 형태 아님: {accounts}")
             accounts = []
         
         trade_cash = 0
@@ -782,10 +788,10 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                             # 에러 메시지가 반환된 경우
                             error_name = res['error'].get('name', 'Unknown')
                             error_message = res['error'].get('message', 'Unknown')
-                            print(f"[Ticker 조회 오류] {error_name}: {error_message}")
+                            print(f"[{user}-Ticker 조회 오류] {error_name}: {error_message}")
 
                     except Exception as e:
-                        print(f"[Ticker 조회 예외] 오류 발생: {e}")
+                        print(f"[{user}-Ticker 조회 예외] 오류 발생: {e}")
                         res = None 
                     
                     if len(res) > 0:                
@@ -992,11 +998,11 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                         # 에러 메시지가 반환된 경우
                         error_name = res['error'].get('name', 'Unknown')
                         error_message = res['error'].get('message', 'Unknown')
-                        print(f"[Ticker 조회 오류] {error_name}: {error_message}")
+                        print(f"[{user}-Ticker 조회 오류] {error_name}: {error_message}")
                         continue
 
                 except Exception as e:
-                    print(f"[Ticker 조회 예외] 오류 발생: {e}")
+                    print(f"[{user}-Ticker 조회 예외] 오류 발생: {e}")
                     res = None 
                 
                 if len(res) > 0:    
@@ -1012,7 +1018,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                     # 손실수익률
                     loss_profit_rate = ((100 - Decimal(current_price / price) * 100) * -1).quantize(Decimal('0.01'), rounding=ROUND_DOWN)
 
-                    print(name,"price : ",price,", volume : ",volume,", amt : ",amt,", current_price : ",current_price,", current_amt : ",current_amt,", loss_profit_amt : ",loss_profit_amt,", loss_profit_rate : ",loss_profit_rate)    
+                    print(f"[{user}-{name}] 보유단가 : {format_number(price)}, 보유량 : {format_number(volume)}, 보유금액 : {format_number(amt)}원, 현재가 : {format_number(current_price)}, 현재금액 : {format_number(current_amt)}원, 손수익금액 : {format_number(loss_profit_amt)}원, 손수익율 : {format_number(loss_profit_rate)}%")    
                 
                     cur032 = conn.cursor()
                     result_32 = []
@@ -1274,7 +1280,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                 
                 timezone = pytz.timezone('Asia/Seoul')
                 end_time = datetime.now(timezone)
-                print(f"{name} : {volume}, 잔고정보 분석 종료 시간 : {end_time}")
+                print(f"[{user}-{name}] {format_number(volume)}원, 잔고정보 체크 시간 : {end_time}")
             
         cur04 = conn.cursor()
         del_param1 = (
@@ -1306,12 +1312,12 @@ trend_type = 'long'
 
 # 실행
 if __name__ == "__main__":
-    print("잔고정보 1분마다 분석 작업을 실행합니다...")
+    # print("잔고정보 1분마다 분석 작업을 실행합니다...")
 
     for user in users:
         analyze_data(user, market, trend_type, prd_list, plan_amt)
-        schedule.every(1).minutes.do(analyze_data, user, market, trend_type, prd_list, plan_amt)
+    #     schedule.every(1).minutes.do(analyze_data, user, market, trend_type, prd_list, plan_amt)
 
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)

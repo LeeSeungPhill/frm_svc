@@ -20,7 +20,7 @@ api_url = os.getenv("BITHUMB_API")
 DB_NAME = "universe"
 DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
-DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
 def ordno_order(access_key, secret_key, cust_num, user_id, conn):
@@ -199,13 +199,13 @@ users = ['phills2']
 
 # 실행
 if __name__ == "__main__":
-    print("매매관리정보 현행화 작업을 매일 실행합니다...")
+    # print("매매관리정보 현행화 작업을 매일 실행합니다...")
 
     for user in users:
         analyze_data(user)
         # 매일 오전 9시에 실행되도록 스케줄 설정
-        schedule.every().day.at("09:00").do(analyze_data, user)
+    #     schedule.every().day.at("09:00").do(analyze_data, user)
 
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)
