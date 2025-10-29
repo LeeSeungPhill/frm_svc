@@ -22,8 +22,11 @@ exchange = ccxt.upbit({
 })
 
 # Slack 메세지 연동
-SLACK_TOKEN = "xoxb-" + "8297506351525-" + "8285909742855-" + "0dYYONPibZwn0JdlWWAKVc6g"
-client = slack_sdk.WebClient(token=SLACK_TOKEN)
+SLACK_BOT_TOKEN1 = os.environ['SLACK_TOKEN1']
+SLACK_BOT_TOKEN2 = os.environ['SLACK_TOKEN2']
+SLACK_BOT_TOKEN3 = os.environ['SLACK_TOKEN3']
+SLACK_BOT_TOKEN4 = os.environ['SLACK_TOKEN4']
+client = slack_sdk.WebClient(token=SLACK_BOT_TOKEN1+SLACK_BOT_TOKEN2+SLACK_BOT_TOKEN3+SLACK_BOT_TOKEN4)
 
 # 전송된 메시지 기록 저장 (전역 변수)
 sent_messages = set()
@@ -32,7 +35,7 @@ sent_messages = set()
 DB_NAME = "universe"
 DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
-DB_HOST = "192.168.50.248"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
 def get_trend_line(dates, prices):
