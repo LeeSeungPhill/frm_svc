@@ -655,7 +655,6 @@ def refresh_top_volume_markets():
         dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT
     )
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM MARKET_TOP_VOLUME WHERE base_date = %s", (today,))
         for rank, item in enumerate(top10, 1):
             market_code = item['market']
             currency, market = market_code.split('-')
@@ -665,6 +664,13 @@ def refresh_top_volume_markets():
             cur.execute("""
                 INSERT INTO MARKET_TOP_VOLUME (base_date, market_code, market_currency, korean_name, acc_trade_price, ranking)
                 VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (base_date, market_code)
+                DO UPDATE SET
+                    market_currency = EXCLUDED.market_currency,
+                    korean_name = EXCLUDED.korean_name,
+                    acc_trade_price = EXCLUDED.acc_trade_price,
+                    ranking = EXCLUDED.ranking,
+                    reg_date = NOW()
             """, (today, market_code, market_currency, korean_name, acc_trade_price, rank))
         conn.commit()
     conn.close()
