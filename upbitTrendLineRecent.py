@@ -494,8 +494,6 @@ def assess_daily_volatility():
 
     try:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM MARKET_VOLATILITY WHERE base_date = %s", (today,))
-
             for market_currency, korean_name in top_markets:
                 atr_result = calculate_atr_pct(exchange, market_currency)
                 time.sleep(0.2)  # API rate limit
@@ -520,6 +518,13 @@ def assess_daily_volatility():
                 cur.execute("""
                     INSERT INTO MARKET_VOLATILITY (base_date, market_code, trend_type, atr_pct, atr_value, current_price)
                     VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (base_date, market_code)
+                    DO UPDATE SET
+                        trend_type = EXCLUDED.trend_type,
+                        atr_pct = EXCLUDED.atr_pct,
+                        atr_value = EXCLUDED.atr_value,
+                        current_price = EXCLUDED.current_price,
+                        reg_date = NOW()
                 """, (today, market_currency, trend_type, atr_pct, atr_value, current_price))
 
                 type_label = {'short': '단기(고변동)', 'mid': '중기(중변동)', 'long': '장기(저변동)', 'watch': '관망(극저변동)'}
