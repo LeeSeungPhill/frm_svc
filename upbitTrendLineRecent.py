@@ -15,6 +15,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ATR% 임계값 (변동성 → trend_type 매핑)
+ATR_THRESHOLD_HIGH = 6.0   # short
+ATR_THRESHOLD_MID = 3.5    # mid
+ATR_THRESHOLD_LOW = 1.5    # long (미만은 watch)
+
+REENTRY_HOURS = {'short': 4, 'mid': 8, 'long': 16}
+
 # 업비트 API 키 설정
 API_KEY = os.environ['UPBIT_ACCESS_KEY']
 SECRET_KEY = os.environ['UPBIT_SECRET_KEY']
@@ -198,15 +205,25 @@ def determine_trends(data):
     return data
 
 # 이동평균선 및 거래량 급등 계산 함수
-def calculate_indicators(data):
+def calculate_indicators(data, timeframe):
     # MultiIndex를 단일 수준으로 변환
     # data.columns = ['_'.join(filter(None, col)) for col in data.columns]
 
     # 이동평균선 계산
     data['200MA'] = data['close'].rolling(window=200, min_periods=1).mean()
 
+    # 타임프레임별 거래량 평균 윈도우 설정 (12시간 평균 기준)
+    if timeframe == "4h":
+        volume_window = 48  # 12시간 평균 (48 * 15분 = 12시간)
+    elif timeframe == "1h":
+        volume_window = 12  # 12시간 평균 (12 * 1시간 = 12시간)
+    elif timeframe == "15m":
+        volume_window = 48  # 12시간 평균 (48 * 15분 = 12시간)
+    else:
+        volume_window = 48  # 기본값
+
     # 12시간 거래량 평균 계산
-    data['Volume Avg'] = data['volume'].rolling(window=48, min_periods=1).mean()
+    data['Volume Avg'] = data['volume'].rolling(window=volume_window, min_periods=1).mean()
 
     # NaN 값 처리 (NaN이 있는 행은 제외)
     data.dropna(subset=['volume', 'Volume Avg'], inplace=True)
@@ -216,7 +233,7 @@ def calculate_indicators(data):
 
     return data
 
-def update_tr_state(conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None, market_kor_name=None):
+def update_tr_state(conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None, market_kor_name=None, reentry_hours=16):
     with conn.cursor() as cur:
 
         if prd_nm:
@@ -266,7 +283,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                 formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 existing_id = result[0]
                 last_dtm = result[1]
-                pre_sixteen_hour_dtm = datetime.now() - timedelta(hours=16)
+                pre_sixteen_hour_dtm = datetime.now() - timedelta(hours=reentry_hours)
 
                 if last_dtm < pre_sixteen_hour_dtm:
 
@@ -419,6 +436,143 @@ def fetch_ohlcv_with_retry(exchange, symbol, timeframe_15m, limit=200, max_retri
     print("Max retries reached. Failed to fetch OHLCV data.")
     return None  # 실패 시 None 반환
 
+def calculate_atr_pct(exchange, symbol, period=14):
+    """일봉 데이터로 ATR% 계산 (ATR / 현재가 * 100)"""
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=period + 1)
+        if ohlcv is None or len(ohlcv) < period + 1:
+            return None
+
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+        # True Range 계산
+        df['prev_close'] = df['close'].shift(1)
+        df['tr'] = df.apply(lambda row: max(
+            row['high'] - row['low'],
+            abs(row['high'] - row['prev_close']) if pd.notna(row['prev_close']) else 0,
+            abs(row['low'] - row['prev_close']) if pd.notna(row['prev_close']) else 0
+        ), axis=1)
+
+        atr = df['tr'].iloc[1:].mean()  # 첫 행 제외 (prev_close 없음)
+        current_price = df['close'].iloc[-1]
+
+        if current_price == 0:
+            return None
+
+        atr_pct = (atr / current_price) * 100
+        return {'atr_pct': round(atr_pct, 4), 'atr_value': atr, 'current_price': current_price}
+
+    except Exception as e:
+        print(f"ATR% 계산 실패 [{symbol}]: {e}")
+        return None
+
+def classify_trend_type(atr_pct):
+    """ATR% 임계값으로 trend_type 분류"""
+    if atr_pct >= ATR_THRESHOLD_HIGH:
+        return 'short'
+    elif atr_pct >= ATR_THRESHOLD_MID:
+        return 'mid'
+    elif atr_pct >= ATR_THRESHOLD_LOW:
+        return 'long'
+    else:
+        return 'watch'
+
+def assess_daily_volatility():
+    """상위 거래량 종목의 ATR% 계산 → trend_type 분류 → DB 저장 → Slack 알림"""
+    timezone = pytz.timezone('Asia/Seoul')
+    today = datetime.now(timezone).date()
+
+    refresh_top_volume_markets()
+    top_markets = get_top_volume_markets()
+
+    market_trend_map = {}
+    slack_lines = ["[일일 변동성 평가 결과]", f"기준일: {today}", ""]
+
+    conn = psycopg2.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT
+    )
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM MARKET_VOLATILITY WHERE base_date = %s", (today,))
+
+            for market_currency, korean_name in top_markets:
+                atr_result = calculate_atr_pct(exchange, market_currency)
+                time.sleep(0.2)  # API rate limit
+
+                if atr_result is None:
+                    print(f"{korean_name}[{market_currency}] ATR% 계산 실패 - 기본값(long) 적용")
+                    trend_type = 'long'
+                    atr_pct = 0.0
+                    atr_value = 0.0
+                    current_price = 0.0
+                else:
+                    atr_pct = atr_result['atr_pct']
+                    atr_value = atr_result['atr_value']
+                    current_price = atr_result['current_price']
+                    trend_type = classify_trend_type(atr_pct)
+
+                market_trend_map[market_currency] = {
+                    'trend_type': trend_type,
+                    'korean_name': korean_name
+                }
+
+                cur.execute("""
+                    INSERT INTO MARKET_VOLATILITY (base_date, market_code, trend_type, atr_pct, atr_value, current_price)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (today, market_currency, trend_type, atr_pct, atr_value, current_price))
+
+                type_label = {'short': '단기(고변동)', 'mid': '중기(중변동)', 'long': '장기(저변동)', 'watch': '관망(극저변동)'}
+                slack_lines.append(f"  {korean_name}[{market_currency}] ATR%: {atr_pct:.2f}% → {type_label.get(trend_type, trend_type)}")
+
+            conn.commit()
+
+    except Exception as e:
+        print(f"변동성 평가 오류: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+    slack_message = "\n".join(slack_lines)
+    print(slack_message)
+    send_slack_message("#매매신호", slack_message)
+
+    return market_trend_map
+
+def get_daily_volatility():
+    """DB에서 당일 변동성 데이터 조회, 없으면 assess_daily_volatility() 호출"""
+    timezone = pytz.timezone('Asia/Seoul')
+    today = datetime.now(timezone).date()
+
+    conn = psycopg2.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT
+    )
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT v.market_code, v.trend_type, t.korean_name
+                FROM MARKET_VOLATILITY v
+                JOIN MARKET_TOP_VOLUME t ON v.market_code = t.market_currency AND v.base_date = t.base_date
+                WHERE v.base_date = %s
+                ORDER BY t.ranking
+            """, (today,))
+            results = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not results:
+        return assess_daily_volatility()
+
+    market_trend_map = {}
+    for market_code, trend_type, korean_name in results:
+        market_trend_map[market_code] = {
+            'trend_type': trend_type,
+            'korean_name': korean_name
+        }
+
+    return market_trend_map
+
 def create_tables():
     conn = psycopg2.connect(
         dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT
@@ -433,6 +587,19 @@ def create_tables():
                 korean_name VARCHAR(50),
                 acc_trade_price NUMERIC(30, 2),
                 ranking INTEGER NOT NULL,
+                reg_date TIMESTAMP DEFAULT NOW(),
+                UNIQUE(base_date, market_code)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS MARKET_VOLATILITY (
+                id SERIAL PRIMARY KEY,
+                base_date DATE NOT NULL,
+                market_code VARCHAR(20) NOT NULL,
+                trend_type VARCHAR(10) NOT NULL,
+                atr_pct NUMERIC(10, 4),
+                atr_value NUMERIC(30, 8),
+                current_price NUMERIC(30, 8),
                 reg_date TIMESTAMP DEFAULT NOW(),
                 UNIQUE(base_date, market_code)
             )
@@ -533,13 +700,29 @@ def get_top_volume_markets():
 
     return results
 
-def analyze_data(trend_type):
-    timeframe_4h = "4h"
+def analyze_data(trend_type, target_market=None):
+    # trend_type에 따른 타임프레임 선택
+    if trend_type.lower() == 'long':
+        timeframe = "4h"
+        lookback_hours = 16  # 최근 캔들 필터링 기준
+        trend_label = "장기"
+    elif trend_type.lower() == 'short':
+        timeframe = "15m"
+        lookback_hours = 4   # 15분봉은 더 짧은 기간
+        trend_label = "단기"
+    else:  # 'mid' 또는 기타
+        timeframe = "1h"
+        lookback_hours = 8   # 1시간봉은 중간 기간
+        trend_label = "중기"
+
     timezone = pytz.timezone('Asia/Seoul')
     end_time = datetime.now(timezone)
-    sixteen_hour_ago = end_time - timedelta(hours=16)
+    lookback_time = end_time - timedelta(hours=lookback_hours)
 
-    top_markets = get_top_volume_markets()
+    if target_market:
+        top_markets = [target_market]  # (market_currency, korean_name) 튜플
+    else:
+        top_markets = get_top_volume_markets()
 
     conn = psycopg2.connect(
         dbname=DB_NAME,
@@ -554,28 +737,28 @@ def analyze_data(trend_type):
         for market_currency, market_kor_name in top_markets:
             count += 1
 
-            # 4시간봉 데이터 가져오기
-            ohlcv_4h = fetch_ohlcv_with_retry(exchange, market_currency, timeframe_4h)
+            # 동적 타임프레임으로 데이터 가져오기
+            ohlcv = fetch_ohlcv_with_retry(exchange, market_currency, timeframe)
 
-            if ohlcv_4h is None or len(ohlcv_4h) < 200:
-                print(f"{market_kor_name}[{market_currency}] 장기 추세라인 미처리 => {end_time}")
+            if ohlcv is None or len(ohlcv) < 200:
+                print(f"{market_kor_name}[{market_currency}] {trend_label} 추세라인 미처리 => {end_time}")
                 continue
 
-            df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True).dt.tz_convert('Asia/Seoul')
 
             # 고점/저점 계산, 이동평균선 및 거래량 급등 계산
-            df_4h = calculate_peaks_and_troughs(df_4h)
-            df_4h = calculate_indicators(df_4h)
+            df = calculate_peaks_and_troughs(df)
+            df = calculate_indicators(df, timeframe)
 
             # 불변값 1회 계산
-            current_date = df_4h.iloc[-1]['timestamp']
-            current_price = float(df_4h.iloc[-1]['close'])
-            current_volume = float(df_4h.iloc[-1]['volume'])
-            prev_volume = float(df_4h.iloc[-2]['volume'])
+            current_date = df.iloc[-1]['timestamp']
+            current_price = float(df.iloc[-1]['close'])
+            current_volume = float(df.iloc[-1]['volume'])
+            prev_volume = float(df.iloc[-2]['volume'])
 
             # check_trend 1회 호출
-            trend_info = check_trend(df_4h, current_date, current_price, current_volume, prev_volume, trend_type)
+            trend_info = check_trend(df, current_date, current_price, current_volume, prev_volume, trend_type)
 
             # Phase 1: 매수 신호 체크/발동
             signal_buy = "01"
@@ -587,12 +770,12 @@ def analyze_data(trend_type):
 
             if result_01:
                 for idx, result in enumerate(result_01):
-                    if idx == 0 and float(df_4h['close'].iloc[-1]) >= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_buy == "01":
+                    if idx == 0 and float(df['close'].iloc[-1]) >= result[2] and float(df['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{market_kor_name}[{market_currency}] 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                        message = f"{market_kor_name}[{market_currency}] 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
 
-                        result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'B', market_kor_name)
+                        result = update_tr_state(conn, '02', result[0], float(df['close'].iloc[-1]), result[2], market_currency, 'B', market_kor_name, reentry_hours=REENTRY_HOURS.get(trend_type, 16))
 
                         if result == "new":
                             signal_buy = "02"
@@ -613,12 +796,12 @@ def analyze_data(trend_type):
 
             if result_02:
                 for idx, result in enumerate(result_02):
-                    if idx == 0 and float(df_4h['close'].iloc[-1]) <= result[2] and float(df_4h['volume'].iloc[-1]) > result[3] and signal_sell == "01":
+                    if idx == 0 and float(df['close'].iloc[-1]) <= result[2] and float(df['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{market_kor_name}[{market_currency}] 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df_4h['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                        message = f"{market_kor_name}[{market_currency}] 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
 
-                        result = update_tr_state(conn, '02', result[0], float(df_4h['close'].iloc[-1]), result[2], market_currency, 'S', market_kor_name)
+                        result = update_tr_state(conn, '02', result[0], float(df['close'].iloc[-1]), result[2], market_currency, 'S', market_kor_name, reentry_hours=REENTRY_HOURS.get(trend_type, 16))
 
                         if result == "new":
                             signal_sell = "02"
@@ -630,9 +813,9 @@ def analyze_data(trend_type):
                         update_tr_state(conn, '11', result[0])
 
             # Phase 3: 신호 생성 (최근 캔들만 필터링)
-            print(f"{market_kor_name}[{market_currency}] 장기 추세라인 분석 종료 시간: {end_time}")
+            print(f"{market_kor_name}[{market_currency}] {trend_label} 추세라인 분석 종료 시간: {end_time}")
 
-            recent_candles = df_4h[df_4h['timestamp'] >= sixteen_hour_ago]
+            recent_candles = df[df['timestamp'] >= lookback_time]
 
             for _, row_15m in recent_candles.iterrows():
                 timestamp = row_15m['timestamp']
@@ -765,6 +948,37 @@ def analyze_data(trend_type):
     finally:
         conn.close()
 
+def run_volatility_analysis():
+    """변동성 기반 자동 추세 분석 실행"""
+    market_trend_map = get_daily_volatility()
+
+    if not market_trend_map:
+        print("변동성 평가 결과 없음. 기본값(long)으로 실행.")
+        analyze_data('long')
+        return
+
+    for market_currency, info in market_trend_map.items():
+        trend_type = info['trend_type']
+        korean_name = info['korean_name']
+
+        if trend_type == 'watch':
+            print(f"{korean_name}[{market_currency}] 관망 - 분석 건너뜀")
+            continue
+
+        analyze_data(trend_type, target_market=(market_currency, korean_name))
+        time.sleep(1)  # API rate limit
+
+def daily_volatility_refresh():
+    """9시 변동성 평가 갱신"""
+    assess_daily_volatility()
+
 if __name__ == "__main__":
     create_tables()
-    analyze_data('long')
+    schedule.every().day.at("09:00").do(daily_volatility_refresh)
+    schedule.every(1).minutes.do(run_volatility_analysis)
+
+    print("변동성 기반 자동 추세 분석 시작...")
+    run_volatility_analysis()  # 첫 실행
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
