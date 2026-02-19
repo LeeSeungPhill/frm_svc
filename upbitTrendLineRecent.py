@@ -995,12 +995,12 @@ def daily_volatility_refresh():
     assess_daily_volatility()
 
 if __name__ == "__main__":
-    create_tables()
+    # create_tables()
     schedule.every().day.at("09:00").do(daily_volatility_refresh)
     # schedule.every(1).minutes.do(run_volatility_analysis)
 
     print("변동성 기반 자동 추세 분석 시작...")
     run_volatility_analysis()  # 첫 실행
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)
