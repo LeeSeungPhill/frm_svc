@@ -460,7 +460,7 @@ def calculate_atr_pct(exchange, symbol, period=14):
             return None
 
         atr_pct = (atr / current_price) * 100
-        return {'atr_pct': round(atr_pct, 4), 'atr_value': atr, 'current_price': current_price}
+        return {'atr_pct': round(float(atr_pct), 4), 'atr_value': float(atr), 'current_price': float(current_price)}
 
     except Exception as e:
         print(f"ATR% 계산 실패 [{symbol}]: {e}")
