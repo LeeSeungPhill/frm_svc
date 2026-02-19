@@ -52,7 +52,10 @@ DB_PORT = "5432"  # 기본 포트
 def get_trend_line(dates, prices):
     """
     날짜와 가격 데이터를 받아 선형 회귀를 통해 추세선을 생성.
+    데이터 포인트가 2개 미만이면 (None, None) 반환.
     """
+    if len(dates) < 2 or len(prices) < 2:
+        return None, None
     # x = np.array([(date - min(dates)).days for date in dates])    # 일단위
     x = np.array([(date - min(dates)).total_seconds() / 60 for date in dates])  # 15분 단위
     y = np.array(prices)
@@ -106,6 +109,14 @@ def check_trend(df, current_date, current_price, current_volume, prev_volume, tr
 
     high_slope, high_intercept = get_trend_line(high_dates, high_prices)
     low_slope, low_intercept = get_trend_line(low_dates, low_prices)
+
+    # 추세선 계산 불가 시 Normal 반환
+    if high_slope is None or low_slope is None:
+        return {"result": "Normal", "predicted_high": None, "predicted_low": None,
+                "high_slope": None, "high_intercept": None,
+                "low_slope": None, "low_intercept": None,
+                "high_prices": max(high_prices) if high_prices else None,
+                "low_prices": min(low_prices) if low_prices else None}
 
     predicted_high = predict_price(current_date, min(high_dates), high_slope, high_intercept)
     predicted_low = predict_price(current_date, min(low_dates), low_slope, low_intercept)
