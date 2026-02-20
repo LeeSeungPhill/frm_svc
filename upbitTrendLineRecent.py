@@ -244,7 +244,7 @@ def calculate_indicators(data, timeframe):
 
     return data
 
-def update_tr_state(conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None, market_kor_name=None, reentry_hours=16):
+def update_tr_state(trend_type, conn, state, signal_id, current_price=None, signal_price=None, prd_nm=None, tr_tp=None, market_kor_name=None, reentry_hours=16):
     with conn.cursor() as cur:
 
         if prd_nm:
@@ -344,7 +344,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
 
                             conn.commit()
 
-                            message = f"{market_kor_name}[{prd_nm}] 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                            message = f"-{trend_type}-{market_kor_name}[{prd_nm}] 추가 매수 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                             print(message)
                             send_slack_message("#매매신호", message)
 
@@ -403,7 +403,7 @@ def update_tr_state(conn, state, signal_id, current_price=None, signal_price=Non
                                     conn.commit()
 
                                     formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    message = f"{market_kor_name}[{prd_nm}] 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                                    message = f"-{trend_type}-{market_kor_name}[{prd_nm}] 추가 매도 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                                     print(message)
                                     send_slack_message("#매매신호", message)
 
@@ -794,10 +794,10 @@ def analyze_data(trend_type, target_market=None):
                 for idx, result in enumerate(result_01):
                     if idx == 0 and float(df['close'].iloc[-1]) >= result[2] and float(df['volume'].iloc[-1]) > result[3] and signal_buy == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{market_kor_name}[{market_currency}] 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
+                        message = f"-{trend_type}-{market_kor_name}[{market_currency}] 매수 신호 발생 시간: {formatted_datetime}, 현재가: {df['close'].iloc[-1]} 하락추세선 상단 돌파한 고점 {round(result[2], 1)} 을 돌파하였습니다."
                         print(message)
 
-                        result = update_tr_state(conn, '02', result[0], float(df['close'].iloc[-1]), result[2], market_currency, 'B', market_kor_name, reentry_hours=REENTRY_HOURS.get(trend_type, 16))
+                        result = update_tr_state(trend_type, conn, '02', result[0], float(df['close'].iloc[-1]), result[2], market_currency, 'B', market_kor_name, reentry_hours=REENTRY_HOURS.get(trend_type, 16))
 
                         if result == "new":
                             signal_buy = "02"
@@ -806,7 +806,7 @@ def analyze_data(trend_type, target_market=None):
                             signal_buy = "02"
 
                     elif signal_buy == "02":
-                        update_tr_state(conn, '11', result[0])
+                        update_tr_state(trend_type, conn, '11', result[0])
 
             # Phase 2: 매도 신호 체크/발동
             signal_sell = "01"
@@ -820,10 +820,10 @@ def analyze_data(trend_type, target_market=None):
                 for idx, result in enumerate(result_02):
                     if idx == 0 and float(df['close'].iloc[-1]) <= result[2] and float(df['volume'].iloc[-1]) > result[3] and signal_sell == "01":
                         formatted_datetime = datetime.strptime(result[1], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
-                        message = f"{market_kor_name}[{market_currency}] 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
+                        message = f"-{trend_type}-{market_kor_name}[{market_currency}] 매도 신호 발생 시간: {formatted_datetime}, 현재가: {df['close'].iloc[-1]} 상승추세선 하단 이탈한 저점 {round(result[2], 1)} 을 이탈하였습니다."
                         print(message)
 
-                        result = update_tr_state(conn, '02', result[0], float(df['close'].iloc[-1]), result[2], market_currency, 'S', market_kor_name, reentry_hours=REENTRY_HOURS.get(trend_type, 16))
+                        result = update_tr_state(trend_type, conn, '02', result[0], float(df['close'].iloc[-1]), result[2], market_currency, 'S', market_kor_name, reentry_hours=REENTRY_HOURS.get(trend_type, 16))
 
                         if result == "new":
                             signal_sell = "02"
@@ -832,10 +832,10 @@ def analyze_data(trend_type, target_market=None):
                             signal_sell = "02"
 
                     elif signal_sell == "02":
-                        update_tr_state(conn, '11', result[0])
+                        update_tr_state(trend_type, conn, '11', result[0])
 
             # Phase 3: 신호 생성 (최근 캔들만 필터링)
-            print(f"{market_kor_name}[{market_currency}] {trend_label} 추세라인 분석 종료 시간: {end_time}")
+            print(f"-{trend_type}-{market_kor_name}[{market_currency}] {trend_label} 추세라인 분석 종료 시간: {end_time}")
 
             recent_candles = df[df['timestamp'] >= lookback_time]
 
@@ -900,7 +900,7 @@ def analyze_data(trend_type, target_market=None):
                                 conn.commit()
 
                                 formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                message = f"{market_kor_name}[{market_currency}] 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                                message = f"-{trend_type}-{market_kor_name}[{market_currency}] 매도 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                                 print(message)
                                 send_slack_message("#매매신호", message)
 
@@ -959,7 +959,7 @@ def analyze_data(trend_type, target_market=None):
                                 conn.commit()
 
                                 formatted_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                message = f"{market_kor_name}[{market_currency}] 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
+                                message = f"-{trend_type}-{market_kor_name}[{market_currency}] 매수 추세 마감 신호 발생 시간: {formatted_datetime}, 현재가: {current_price} "
                                 print(message)
                                 send_slack_message("#매매신호", message)
 
