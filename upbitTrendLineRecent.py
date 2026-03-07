@@ -223,15 +223,17 @@ def calculate_indicators(data, timeframe):
     # 이동평균선 계산
     data['200MA'] = data['close'].rolling(window=200, min_periods=1).mean()
 
-    # 타임프레임별 거래량 평균 윈도우 설정 (12시간 평균 기준)
-    if timeframe == "4h":
-        volume_window = 48  # 12시간 평균 (48 * 15분 = 12시간)
+    # 타임프레임별 거래량 평균 윈도우 설정 (약 2주 평균 기준)
+    if timeframe == "1d":
+        volume_window = 14  # 14일 평균
+    elif timeframe == "4h":
+        volume_window = 42  # 7일 평균 (42 * 4시간 = 168시간)
     elif timeframe == "1h":
         volume_window = 12  # 12시간 평균 (12 * 1시간 = 12시간)
     elif timeframe == "15m":
         volume_window = 48  # 12시간 평균 (48 * 15분 = 12시간)
     else:
-        volume_window = 48  # 기본값
+        volume_window = 14  # 기본값
 
     # 12시간 거래량 평균 계산
     data['Volume Avg'] = data['volume'].rolling(window=volume_window, min_periods=1).mean()
@@ -725,16 +727,16 @@ def get_top_volume_markets():
 def analyze_data(trend_type, target_market=None):
     # trend_type에 따른 타임프레임 선택
     if trend_type.lower() == 'long':
-        timeframe = "4h"
-        lookback_hours = 16  # 최근 캔들 필터링 기준
+        timeframe = "1d"
+        lookback_hours = 72  # 최근 3일 캔들 필터링 기준
         trend_label = "장기"
     elif trend_type.lower() == 'short':
-        timeframe = "15m"
-        lookback_hours = 4   # 15분봉은 더 짧은 기간
+        timeframe = "1h"
+        lookback_hours = 8   # 1시간봉은 최근 8시간
         trend_label = "단기"
     else:  # 'mid' 또는 기타
-        timeframe = "1h"
-        lookback_hours = 8   # 1시간봉은 중간 기간
+        timeframe = "4h"
+        lookback_hours = 16  # 4시간봉은 최근 4캔들(16시간)
         trend_label = "중기"
 
     timezone = pytz.timezone('Asia/Seoul')
