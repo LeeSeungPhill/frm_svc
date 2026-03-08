@@ -988,6 +988,9 @@ def run_volatility_analysis():
         if trend_type == 'watch':
             print(f"{korean_name}[{market_currency}] 관망 - 분석 건너뜀")
             continue
+        elif trend_type == 'short':
+            print(f"{korean_name}[{market_currency}] 관망 - 분석 건너뜀")
+            continue
 
         analyze_data(trend_type, target_market=(market_currency, korean_name))
         time.sleep(1)  # API rate limit
