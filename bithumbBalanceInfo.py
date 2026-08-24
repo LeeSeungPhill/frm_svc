@@ -10,7 +10,7 @@ load_dotenv()
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 import time
 import psycopg2
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import schedule
 import json
 import shlex
@@ -677,6 +677,191 @@ def proc_trade_mng_hist(cust_num, market_name, conn):
         cur01.close()
         cur02.close()
 
+# ─────────────────────────────────────────
+# public.bit_fund_mng 실시간 자산정보/시장추세(market_ratio) 갱신
+# upbitBalanceInfo.py 의 동일 처리를 그대로 이식 — BITHUMB API는 잔고/시세 응답 형식이 UPBIT와 동일하므로
+# (bithumbBalanceInfo.py 상단 api_url이 이미 BITHUMB_API를 가리킴) 로직은 변경 없이 그대로 사용하고,
+# get_business_day()만 BITHUMB의 영업일 경계(당일 00:00~23:59, bitTradingSet.py/bitTradingTrail.py의
+# get_business_day('BITHUMB', ...)와 동일 규칙)에 맞게 조정한다.
+# - 자산정보 : Batch/kis_interest_item_total.py 의 fund_marketLevel_proc(브로커 API 잔고 응답을
+#   그대로 자산관리 테이블에 반영) 방식을 참고 — 매 사이클 잔고정보(balance_info) 현행화 직후 실시간 반영
+# - 시장추세(btc_short/eth_short 등) : 같은 파일의 elif len(i[0]) == 4: 블록(코스피/코스닥 기준가 돌파·이탈
+#   판정)을 참고하되, 지수 현재가 대신 코인의 당일 고가/저가로 판정하고, 기준값은 bit_interest_item(계좌별
+#   BTC/ETH 이탈가/돌파가/지지가/저항가/추세하단가/추세상단가)에서 조회한다. 매 사이클 실시간 재판정하여
+#   덮어쓰며, 이번 사이클에 임계값을 넘지 않은 timeframe은 직전 값을 그대로 유지한다.
+# - market_ratio : 같은 파일의 compute_market_ratio() 가중합 로직을 그대로 이식
+# ─────────────────────────────────────────
+
+def get_business_day(now=None):
+    """bit_fund_mng.dt 기준일 : BITHUMB는 당일 00:00부터 23:59까지를 하나의 영업일로 취급한다.
+    (bitTradingSet.py/bitTradingTrail.py의 get_business_day('BITHUMB', ...)와 동일 규칙)"""
+    now = now or datetime.now()
+    return now.strftime("%Y%m%d")
+
+def compute_market_ratio(btc_short, btc_mid, btc_long, eth_short, eth_mid, eth_long):
+    """6개 timeframe 신호를 종합한 시장 승률 (0~100). kis_interest_item_total.py의 compute_market_ratio 이식."""
+    rules = [
+        (btc_short, '01', '02', 5),
+        (btc_mid,   '03', '04', 8),
+        (btc_long,  '05', '06', 12),
+        (eth_short, '01', '02', 5),
+        (eth_mid,   '03', '04', 8),
+        (eth_long,  '05', '06', 12),
+    ]
+    score = 0
+    for signal, bull, bear, weight in rules:
+        if signal == bull:
+            score += weight
+        elif signal == bear:
+            score -= weight
+    return max(0, min(100, 50 + score))
+
+def evaluate_trend_code(high, low, up_price, down_price, up_code, down_code):
+    """당일 고가가 up_price 이상이면 up_code(상승), 저가가 down_price 이하면 down_code(하락).
+    둘 다 충족하면(당일 중 양방향 모두 터치) 더 보수적인 하락 신호를 우선한다.
+    둘 다 미충족이면 None을 반환해 호출측에서 직전 값을 유지하도록 한다."""
+    if down_price and low <= down_price:
+        return down_code
+    if up_price and high >= up_price:
+        return up_code
+    return None
+
+def get_coin_high_low(code):
+    try:
+        res = requests.get(api_url + "/v1/ticker", params={"markets": "KRW-" + code}).json()
+        if isinstance(res, list) and len(res) > 0:
+            return float(res[0]['high_price']), float(res[0]['low_price'])
+    except Exception as e:
+        print(f"[{code}] 시세 조회 오류: {e}")
+    return None, None
+
+def update_bit_fund_mng_realtime(cust_info, market, conn):
+    acct_no = cust_info['acct_no']
+    cust_num = cust_info['cust_num']
+
+    trail_day = get_business_day()
+    prev_day = (datetime.strptime(trail_day, "%Y%m%d") - timedelta(days=1)).strftime("%Y%m%d")
+
+    try:
+        # 자산정보 : balance_info 현행화 직후 실제 잔고 기준으로 집계
+        cur1 = conn.cursor()
+        cur1.execute("""
+            SELECT
+                COALESCE(SUM(hold_amt) FILTER (WHERE prd_nm != 'KRW-KRW' AND hold_volume > 0), 0) AS pchs_amt,
+                COALESCE(SUM(current_amt) FILTER (WHERE prd_nm != 'KRW-KRW' AND hold_volume > 0), 0) AS evlu_amt,
+                COALESCE(SUM(hold_amt) FILTER (WHERE prd_nm = 'KRW-KRW'), 0) AS cash_amt
+            FROM balance_info
+            WHERE cust_num = %s AND market_name = %s
+        """, (cust_num, market))
+        pchs_amt, evlu_amt, cash_amt = cur1.fetchone()
+        cur1.close()
+
+        pchs_amt = int(pchs_amt or 0)
+        evlu_amt = int(evlu_amt or 0)
+        cash_amt = int(cash_amt or 0)
+        evlu_pfls_amt = evlu_amt - pchs_amt
+        tot_evlu_amt = cash_amt + evlu_amt
+        nass_amt = tot_evlu_amt
+
+        # 전일 대비 자산증감액
+        cur2 = conn.cursor()
+        cur2.execute("""
+            SELECT tot_evlu_amt FROM public.bit_fund_mng
+            WHERE acct_no = %s AND cust_num = %s AND market_name = %s AND dt = %s
+        """, (acct_no, cust_num, market, prev_day))
+        prev_row = cur2.fetchone()
+        cur2.close()
+        prev_tot_evlu_amt = int(prev_row[0]) if prev_row else tot_evlu_amt
+        asst_icdc_amt = tot_evlu_amt - prev_tot_evlu_amt
+
+        # 기존(오늘자) 시장추세 값 조회 — 이번 사이클에 임계값 미충족 timeframe은 이 값을 유지
+        cur3 = conn.cursor()
+        cur3.execute("""
+            SELECT btc_short, btc_mid, btc_long, eth_short, eth_mid, eth_long
+            FROM public.bit_fund_mng
+            WHERE acct_no = %s AND cust_num = %s AND market_name = %s AND dt = %s
+        """, (acct_no, cust_num, market, trail_day))
+        trend_row = cur3.fetchone()
+        cur3.close()
+        btc_short, btc_mid, btc_long, eth_short, eth_mid, eth_long = trend_row if trend_row else (None,) * 6
+
+        # BTC/ETH 기준값(bit_interest_item) 조회 및 당일 고가/저가 대비 판정
+        cur4 = conn.cursor()
+        cur4.execute("""
+            SELECT prd_nm, through_price, leave_price, resist_price, support_price, trend_high_price, trend_low_price
+            FROM bit_interest_item
+            WHERE market_name = %s AND prd_nm IN ('BTC', 'ETH')
+        """, (market,))
+        interest_rows = cur4.fetchall()
+        cur4.close()
+
+        for prd_nm, through_price, leave_price, resist_price, support_price, trend_high_price, trend_low_price in interest_rows:
+            high, low = get_coin_high_low(prd_nm)
+            if high is None:
+                continue
+
+            short_code = evaluate_trend_code(high, low, float(through_price or 0), float(leave_price or 0), '01', '02')
+            mid_code = evaluate_trend_code(high, low, float(resist_price or 0), float(support_price or 0), '03', '04')
+            long_code = evaluate_trend_code(high, low, float(trend_high_price or 0), float(trend_low_price or 0), '05', '06')
+
+            if prd_nm == 'BTC':
+                btc_short = short_code if short_code is not None else btc_short
+                btc_mid = mid_code if mid_code is not None else btc_mid
+                btc_long = long_code if long_code is not None else btc_long
+            else:
+                eth_short = short_code if short_code is not None else eth_short
+                eth_mid = mid_code if mid_code is not None else eth_mid
+                eth_long = long_code if long_code is not None else eth_long
+
+        market_ratio = compute_market_ratio(btc_short, btc_mid, btc_long, eth_short, eth_mid, eth_long)
+
+        cur5 = conn.cursor()
+        cur5.execute("""
+            INSERT INTO public.bit_fund_mng (
+                acct_no, cust_num, market_name, dt,
+                dnca_tot_amt, prvs_excc_amt, user_evlu_amt, tot_evlu_amt, nass_amt,
+                pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt,
+                market_ratio, btc_short, eth_short, btc_mid, eth_mid, btc_long, eth_long,
+                last_chg_date
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
+                %s
+            )
+            ON CONFLICT (acct_no, cust_num, market_name, dt) DO UPDATE SET
+                dnca_tot_amt  = EXCLUDED.dnca_tot_amt,
+                prvs_excc_amt = EXCLUDED.prvs_excc_amt,
+                user_evlu_amt = EXCLUDED.user_evlu_amt,
+                tot_evlu_amt  = EXCLUDED.tot_evlu_amt,
+                nass_amt      = EXCLUDED.nass_amt,
+                pchs_amt      = EXCLUDED.pchs_amt,
+                evlu_amt      = EXCLUDED.evlu_amt,
+                evlu_pfls_amt = EXCLUDED.evlu_pfls_amt,
+                asst_icdc_amt = EXCLUDED.asst_icdc_amt,
+                market_ratio  = EXCLUDED.market_ratio,
+                btc_short     = EXCLUDED.btc_short,
+                eth_short     = EXCLUDED.eth_short,
+                btc_mid       = EXCLUDED.btc_mid,
+                eth_mid       = EXCLUDED.eth_mid,
+                btc_long      = EXCLUDED.btc_long,
+                eth_long      = EXCLUDED.eth_long,
+                last_chg_date = EXCLUDED.last_chg_date
+        """, (
+            acct_no, cust_num, market, trail_day,
+            cash_amt, cash_amt, evlu_amt, tot_evlu_amt, nass_amt,
+            pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt,
+            market_ratio, btc_short, eth_short, btc_mid, eth_mid, btc_long, eth_long,
+            datetime.now()
+        ))
+        conn.commit()
+        cur5.close()
+
+    except Exception as e:
+        conn.rollback()
+        print(f"[{trail_day}-{cust_num}-{market}] bit_fund_mng 실시간 갱신 오류: {e}")
+
 def analyze_data(user, market, trend_type, prd_list, plan_amt):
     
     # PostgreSQL 데이터베이스에 연결
@@ -1302,7 +1487,10 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
         # 잔고정보 미존재 대상 매매관리정보 백업 처리
         proc_trade_mng_hist(cust_info['cust_num'], cust_info['market_name'], conn)
-    
+
+        # 잔고정보 현행화 완료 후 : bit_fund_mng 실시간 자산정보/시장추세(market_ratio) 갱신
+        update_bit_fund_mng_realtime(cust_info, market, conn)
+
     cur01.close()
     conn.close()
 

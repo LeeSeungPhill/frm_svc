@@ -15,20 +15,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─────────────────────────────────────────
-# kis_trading_trail_vol_state.py 의 trail_tp='1'/'2'/'L' 매매추적 로직을 업비트(24시간 시장)에 맞게 이식한다.
-# - "영업일" 경계는 09:00 ~ 익일 08:59 (bitTradingSet.py의 UPBIT trail_dtm='090000' 관례와 동일)
-# - KIS는 하루 1회 09:00부터 현재까지 1분봉을 리플레이하지만, 본 배치는 실제로 1분마다 외부(cron)에서
+# kis_trading_trail_vol_state.py 의 trail_tp='1'/'2'/'L' 매매추적 로직을 업비트/빗썸(24시간 시장)에 맞게 이식한다.
+# - "영업일" 경계는 시장별로 다르다 : UPBIT는 당일 09:00~익일 08:59, BITHUMB는 당일 00:00~23:59
+#   (bitTradingSet.py의 get_business_day()와 동일 규칙). 08:00/08:40/09:10 등 KIS 원본의 절대시각 기준은
+#   "영업일 시작 후 경과시간"(get_elapsed_hours)으로 환산해 두 시장 모두 하루 중 같은 상대 시점에 동작한다.
+# - KIS는 하루 1회 (영업일 시작)부터 현재까지 1분봉을 리플레이하지만, 본 배치는 실제로 1분마다 외부(cron)에서
 #   호출되므로 "가장 최근 완성봉만 처리 + 상태(기준봉/이탈대기/알림이력)는 bit_trading_trail에 지속 저장"하는
 #   구조로 이식한다.
 # - 상한가/호가단위 등 KRX 특화 로직은 대상이 아니므로 제외하고, 매도는 항상 시장가로 즉시 체결한다.
 # - 코스피/코스닥 시장흐름 대신 KRW-BTC/KRW-ETH 단기추세(public.bit_fund_mng.btc_short/eth_short)를 사용한다.
 #   코인이 BTC 자신이면 btc_short, 그 외(알트코인)는 eth_short를 단기하락(_short_market_down) 판단에 사용한다.
-# - 업비트는 10분봉을 API에서 직접 제공하므로, KIS처럼 1분봉을 모아 10분봉을 직접 집계할 필요가 없다.
+# - 업비트/빗썸 모두 10분봉을 API에서 직접 제공하므로, KIS처럼 1분봉을 모아 10분봉을 직접 집계할 필요가 없다.
+#   두 거래소의 인증 방식 차이(빗썸 timestamp 필드, query_hash 인코딩, 주문 바디 직렬화)는 auth_headers()/
+#   place_market_sell() 에서 market 인자로 분기한다 (bithumbBalanceInfo.py, trade_proc.py의 bithumb_order 참조).
 # ─────────────────────────────────────────
 
 DRY_RUN = True  # True인 동안은 실제 매도 주문을 내지 않고 판단 결과만 로그/Slack으로 알린다. 운영 전환 시 False로 변경.
 
 UPBIT_API = os.getenv("UPBIT_API")
+BITHUMB_API = os.getenv("BITHUMB_API")
 
 # 데이터베이스 연결 정보
 DB_NAME = "universe"
@@ -47,15 +52,18 @@ SLACK_BOT_TOKEN4 = os.environ['SLACK_BOT_TOKEN4']
 slack_client = slack_sdk.WebClient(token=SLACK_BOT_TOKEN1 + SLACK_BOT_TOKEN2 + SLACK_BOT_TOKEN3 + SLACK_BOT_TOKEN4)
 
 # 안전마진(매입가 대비), 고점 되돌림 허용비율, 거래량서지 기준 — kis_trading_trail_vol_state.py 상수를 그대로 사용
+# 시간 관련 기준은 영업일 시작(09:00 UPBIT / 00:00 BITHUMB) 이후 경과시간(시간 단위)으로 표현한다.
+# UPBIT 기준 "08:00 이후"=영업일 시작 23시간 후, "08:40 이후"=23시간40분 후, "09:10 이전"=10분 후 —
+# 이 오프셋을 BITHUMB(00:00 시작)에도 동일하게 적용해 두 시장 모두 하루 중 같은 상대 시점에 동작하게 한다.
 SAFETY_MARGIN_RATE = 0.05
 PROFIT_LOCK_FLOOR_RATE = 0.10          # trail_tp='L' 수익잠금 최소마진(매입가 대비 +10%)
 PEAK_RETRACEMENT_RATE = 0.5
 LATE_DAY_RETRACEMENT_RATE = 0.3
-LATE_DAY_START = "0800"                # 08:00 이후: 되돌림 허용비율 강화
-DOWNTREND_SELL_START = "0840"          # 08:40 이후: 하락추세 지속 시 강제 전량매도
-DOWNTREND_WARN_START = "0910"
-DOWNTREND_WARN_END = "0830"
-PREMARKET_END = "0910"                 # 09:00~09:10 미처리
+LATE_DAY_START_HOURS = 23.0            # 영업일 시작 23시간 경과 이후: 되돌림 허용비율 강화 (UPBIT 08:00)
+DOWNTREND_SELL_START_HOURS = 23.0 + 40.0 / 60.0   # 23시간40분 경과 이후: 하락추세 지속 시 강제 전량매도 (UPBIT 08:40)
+DOWNTREND_WARN_START_HOURS = 10.0 / 60.0          # 10분 경과 이후부터
+DOWNTREND_WARN_END_HOURS = 23.5        # 23시간30분 경과 이전까지 사전경고 (UPBIT 09:10~08:30)
+PREMARKET_END_HOURS = 10.0 / 60.0      # 영업일 시작 후 10분 미처리
 VOL_SURGE_N = 20
 VOL_SURGE_MULT = 2.0
 PROFIT_LOCK_GAIN_PCT = 15.0            # trail_tp='L' 당일 고가가 전일종가 대비 이 이상이면 수익잠금 트레일링 진입
@@ -91,16 +99,32 @@ def format_number(value):
 
 
 # ─────────────────────────────────────────
-# 업비트 인증/시세/주문
+# 업비트/빗썸 공통 인증/시세/주문
+# 두 거래소 모두 REST 엔드포인트 경로·응답 필드는 동일하지만(bithumbBalanceInfo.py 참조), 인증 방식은
+# 아래 3가지가 다르다 (frm_api_svc/routers/trade_mng.py 의 place_order/bithumb_order 참조):
+#   1) 빗썸은 payload에 'timestamp'(ms) 필드가 추가로 필요하다.
+#   2) query_hash 생성 시 인코딩 방식이 다르다 — 업비트: unquote(urlencode(params, doseq=True)),
+#      빗썸: urlencode(params) 그대로(unquote/doseq 없음).
+#   3) 주문 POST 시 업비트는 json= 로 바디를 맡기지만, 빗썸은 query_hash 계산에 사용한 것과 동일한
+#      직렬화 결과가 그대로 전송되도록 data=json.dumps(...) + Content-Type 헤더를 명시한다.
 # ─────────────────────────────────────────
 
-def auth_headers(access_key, secret_key, params=None):
+def api_url(market):
+    return UPBIT_API if market == 'UPBIT' else BITHUMB_API
+
+def auth_headers(access_key, secret_key, market, params=None):
     payload = {
         'access_key': access_key,
         'nonce': str(uuid.uuid4()),
     }
+    if market == 'BITHUMB':
+        payload['timestamp'] = round(time.time() * 1000)
+
     if params:
-        query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
+        if market == 'BITHUMB':
+            query_string = urlencode(params).encode()
+        else:
+            query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
         m = hashlib.sha512()
         m.update(query_string)
         payload['query_hash'] = m.hexdigest()
@@ -108,24 +132,24 @@ def auth_headers(access_key, secret_key, params=None):
     jwt_token = jwt.encode(payload, secret_key)
     return {'Authorization': 'Bearer {}'.format(jwt_token)}
 
-def fetch_minute_candles(code, unit, count):
+def fetch_minute_candles(market, code, unit, count):
     try:
-        res = requests.get(UPBIT_API + f"/v1/candles/minutes/{unit}", params={"market": "KRW-" + code, "count": count}).json()
+        res = requests.get(api_url(market) + f"/v1/candles/minutes/{unit}", params={"market": "KRW-" + code, "count": count}).json()
         return res if isinstance(res, list) else []
     except Exception as e:
-        print(f"[{code}] {unit}분봉 조회 오류: {e}")
+        print(f"[{market}-{code}] {unit}분봉 조회 오류: {e}")
         return []
 
-def fetch_day_candles(code, count=2):
+def fetch_day_candles(market, code, count=2):
     try:
-        res = requests.get(UPBIT_API + "/v1/candles/days", params={"market": "KRW-" + code, "count": count}).json()
+        res = requests.get(api_url(market) + "/v1/candles/days", params={"market": "KRW-" + code, "count": count}).json()
         return res if isinstance(res, list) else []
     except Exception as e:
-        print(f"[{code}] 일봉 조회 오류: {e}")
+        print(f"[{market}-{code}] 일봉 조회 오류: {e}")
         return []
 
-def fetch_10min_series(code, count=41):
-    raw = fetch_minute_candles(code, 10, count)
+def fetch_10min_series(market, code, count=41):
+    raw = fetch_minute_candles(market, code, 10, count)
     if not raw:
         return []
     raw_sorted = sorted(raw, key=lambda c: c['candle_date_time_kst'])
@@ -144,8 +168,8 @@ def fetch_10min_series(code, count=41):
         })
     return series
 
-def get_prev_day_info(code):
-    days = fetch_day_candles(code, count=2)
+def get_prev_day_info(market, code):
+    days = fetch_day_candles(market, code, count=2)
     if len(days) < 2:
         return None
     days_sorted = sorted(days, key=lambda d: d['candle_date_time_kst'])
@@ -188,8 +212,8 @@ def calc_peak_trough_trend(highs, lows, dates):
         ref_price = None
     return {'trend': cur_trend, 'start_date': dates[start_idx], 'ref_price': ref_price}
 
-def get_coin_trend(code):
-    days = fetch_day_candles(code, count=TREND_LOOKBACK_DAYS)
+def get_coin_trend(market, code):
+    days = fetch_day_candles(market, code, count=TREND_LOOKBACK_DAYS)
     if len(days) < 3:
         return None
     days_sorted = sorted(days, key=lambda d: d['candle_date_time_kst'])
@@ -209,33 +233,37 @@ def is_tenmin_vol_surge(series, target_key, n=VOL_SURGE_N, mult=VOL_SURGE_MULT):
     avg_vol = sum(c['volume'] for c in prev) / len(prev)
     return cur_vol >= avg_vol * mult, cur_vol, avg_vol
 
-def get_available_volume(access_key, secret_key, code):
+def get_available_volume(access_key, secret_key, market, code):
     try:
-        headers = auth_headers(access_key, secret_key)
-        accounts = requests.get(UPBIT_API + '/v1/accounts', headers=headers).json()
+        headers = auth_headers(access_key, secret_key, market)
+        accounts = requests.get(api_url(market) + '/v1/accounts', headers=headers).json()
         if isinstance(accounts, list):
             for item in accounts:
                 if item.get('currency') == code:
                     return float(item['balance'])
     except Exception as e:
-        print(f"[{code}] 잔고 조회 오류: {e}")
+        print(f"[{market}-{code}] 잔고 조회 오류: {e}")
     return 0
 
-def place_market_sell(access_key, secret_key, code, volume):
+def place_market_sell(access_key, secret_key, market, code, volume):
     params = {
         'market': "KRW-" + code,
         'side': 'ask',
         'ord_type': 'market',
         'volume': str(volume),
     }
-    headers = auth_headers(access_key, secret_key, params)
-    res = requests.post(UPBIT_API + '/v1/orders', json=params, headers=headers).json()
+    headers = auth_headers(access_key, secret_key, market, params)
+    if market == 'BITHUMB':
+        headers['Content-Type'] = 'application/json'
+        res = requests.post(api_url(market) + '/v1/orders', data=json.dumps(params), headers=headers).json()
+    else:
+        res = requests.post(api_url(market) + '/v1/orders', json=params, headers=headers).json()
     return res
 
-def get_order(access_key, secret_key, order_uuid):
+def get_order(access_key, secret_key, market, order_uuid):
     params = {"uuid": order_uuid}
-    headers = auth_headers(access_key, secret_key, params)
-    res = requests.get(UPBIT_API + "/v1/order", params=params, headers=headers).json()
+    headers = auth_headers(access_key, secret_key, market, params)
+    res = requests.get(api_url(market) + "/v1/order", params=params, headers=headers).json()
     return res
 
 
@@ -250,6 +278,21 @@ def get_business_day(market_name, now=None):
     if market_name == 'UPBIT' and now.hour < 9:
         return (now - timedelta(days=1)).strftime("%Y%m%d")
     return now.strftime("%Y%m%d")
+
+def get_business_day_start(market_name, now=None):
+    """현재 시각이 속한 영업일의 시작 시각(datetime). UPBIT=09:00, BITHUMB=00:00."""
+    now = now or datetime.now()
+    start_hour = 9 if market_name == 'UPBIT' else 0
+    start = now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+    if now < start:
+        start -= timedelta(days=1)
+    return start
+
+def get_elapsed_hours(market_name, now=None):
+    """영업일 시작 시각으로부터 경과한 시간(시간 단위, 소수)."""
+    now = now or datetime.now()
+    start = get_business_day_start(market_name, now)
+    return (now - start).total_seconds() / 3600
 
 def get_10min_key(dt):
     return dt.replace(minute=(dt.minute // 10) * 10, second=0, microsecond=0)
@@ -348,7 +391,7 @@ def execute_sell(conn, ctx, ratio_pct, trade_result, reason, **extra_state):
 
     ratio_pct = min(max(float(ratio_pct), 0), 100)
     intended_qty = basic_vol * (ratio_pct / 100.0)
-    available_volume = get_available_volume(access_key, secret_key, code)
+    available_volume = get_available_volume(access_key, secret_key, market, code)
     sell_volume = min(intended_qty, available_volume) if available_volume > 0 else 0
 
     if sell_volume <= 0:
@@ -356,7 +399,7 @@ def execute_sell(conn, ctx, ratio_pct, trade_result, reason, **extra_state):
         update_trail_row(conn, trail_id, trail_tp='Y', **extra_state)
         return
 
-    order_response = place_market_sell(access_key, secret_key, code, sell_volume)
+    order_response = place_market_sell(access_key, secret_key, market, code, sell_volume)
 
     if "uuid" not in order_response:
         msg = f"-{user}-[{market}] {code} {label} 매도 주문 실패 => {order_response.get('error', {}).get('message', order_response)}"
@@ -367,7 +410,7 @@ def execute_sell(conn, ctx, ratio_pct, trade_result, reason, **extra_state):
 
     ord_no = order_response['uuid']
     time.sleep(1)
-    order_status = get_order(access_key, secret_key, ord_no)
+    order_status = get_order(access_key, secret_key, market, ord_no)
 
     trades_count = order_status.get('trades_count', 0)
     order_price = (
@@ -444,7 +487,7 @@ def process_tp1(conn, ctx, tenmin_key):
                              f"[시장약세] {wait['sell_label']} 10분봉 완성 매도(매도가:현재가)",
                              wait_state={**ctx['wait_state'], 'bw1': {}}, last_alert_keys=ctx['last_alert_keys'])
                 return
-            series = fetch_10min_series(code)
+            series = fetch_10min_series(ctx['market'], code)
             bar = next((c for c in series if c['key'] == wait_key), None)
             if bar is not None:
                 surge_ok, cur_vol, avg_vol = is_tenmin_vol_surge(series, wait_key)
@@ -482,7 +525,7 @@ def process_tp1(conn, ctx, tenmin_key):
 
     # 목표가 돌파 → 기준봉 생성 후 트레일링(2) 전환
     if target_price > 0 and high >= target_price:
-        series = fetch_10min_series(code)
+        series = fetch_10min_series(ctx['market'], code)
         bar = next((c for c in series if c['key'] == tenmin_key), None)
         if bar is not None:
             update_trail_row(
@@ -538,7 +581,7 @@ def process_tp2(conn, ctx, tenmin_key, is_last_of_tenmin):
         update_trail_row(conn, ctx['trail_id'], wait_state={**ctx['wait_state'], 'bw2': wait2}, last_alert_keys=ctx['last_alert_keys'])
         return
 
-    series = fetch_10min_series(code)
+    series = fetch_10min_series(ctx['market'], code)
     bar = next((c for c in series if c['key'] == tenmin_key), None)
     if bar is None:
         update_trail_row(conn, ctx['trail_id'], wait_state={**ctx['wait_state'], 'bw2': wait2}, last_alert_keys=ctx['last_alert_keys'])
@@ -549,7 +592,7 @@ def process_tp2(conn, ctx, tenmin_key, is_last_of_tenmin):
     prev_close = prev_bar['close'] if prev_bar else None
 
     safety_margin = basic_price * (1 + SAFETY_MARGIN_RATE)
-    is_late_day = LATE_DAY_START <= ctx['now_hhmm'] < '0900'
+    is_late_day = ctx['elapsed_hours'] >= LATE_DAY_START_HOURS
     retrace_rate = LATE_DAY_RETRACEMENT_RATE if is_late_day else PEAK_RETRACEMENT_RATE
 
     sell_trigger, trade_result, reason = False, None, None
@@ -629,7 +672,7 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
     low, close, high = ctx['low'], ctx['close'], ctx['high']
     basic_price, stop_price, exit_price, peak_price = ctx['basic_price'], ctx['stop_price'], ctx['exit_price'], ctx['peak_price']
 
-    trend = get_coin_trend(code)
+    trend = get_coin_trend(ctx['market'], code)
     trend_up = bool(trend and trend['trend'] == 'Uptrend')
     trend_down = bool(trend and trend['trend'] == 'Downtrend')
     trend_ref = (trend.get('ref_price') if trend else None) or 0
@@ -648,7 +691,7 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
         if wait.get('active'):
             wait_key = datetime.strptime(wait['tenmin_key'], "%Y%m%d%H%M") if wait.get('tenmin_key') else None
             if wait_key is not None and tenmin_key != wait_key and wait.get('tenmin_low') is None:
-                series = fetch_10min_series(code)
+                series = fetch_10min_series(ctx['market'], code)
                 bar = next((c for c in series if c['key'] == wait_key), None)
                 if bar is not None:
                     surge_ok, _, _ = is_tenmin_vol_surge(series, wait_key)
@@ -673,14 +716,14 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
 
     # 10분봉 완성 시점에만 되돌림/수익잠금 평가
     if is_last_of_tenmin and ctx['proc_min'] != tenmin_key.strftime("%H%M00"):
-        prev_info = get_prev_day_info(code)
+        prev_info = get_prev_day_info(ctx['market'], code)
         prev_close = prev_info['close_price'] if prev_info else 0
         has_15pct = prev_close > 0 and high >= prev_close * (1 + PROFIT_LOCK_GAIN_PCT / 100)
         new_peak = max(peak_price, high)
 
         if has_15pct:
             safety_margin = basic_price * (1 + PROFIT_LOCK_FLOOR_RATE)
-            is_late_day = LATE_DAY_START <= ctx['now_hhmm'] < '0900'
+            is_late_day = ctx['elapsed_hours'] >= LATE_DAY_START_HOURS
             retrace_rate = LATE_DAY_RETRACEMENT_RATE if is_late_day else PEAK_RETRACEMENT_RATE
             peak_to_safety = new_peak - safety_margin
             if new_peak > safety_margin and peak_to_safety >= safety_margin * 0.05:
@@ -700,8 +743,8 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
     else:
         update_trail_row(conn, ctx['trail_id'], wait_state={**ctx['wait_state'], 'bwL': wait}, last_alert_keys=ctx['last_alert_keys'])
 
-    # 하락추세 사전경고 (09:10~08:30, 텍스트 알림 1일 1회)
-    in_warn_window = ctx['now_hhmm'] >= DOWNTREND_WARN_START or ctx['now_hhmm'] <= DOWNTREND_WARN_END
+    # 하락추세 사전경고 (영업일 시작 10분 후 ~ 종료 30분 전, 텍스트 알림 1일 1회)
+    in_warn_window = DOWNTREND_WARN_START_HOURS <= ctx['elapsed_hours'] < DOWNTREND_WARN_END_HOURS
     if in_warn_window and trend_down and close < trend_ref:
         if ctx['last_alert_keys'].get('downtrend_warn') != ctx['trail_day']:
             ctx['last_alert_keys']['downtrend_warn'] = ctx['trail_day']
@@ -710,8 +753,8 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
             send_slack_message("#매매신호", msg)
             update_trail_row(conn, ctx['trail_id'], last_alert_keys=ctx['last_alert_keys'])
 
-    # 08:40 이후 하락추세 지속 시 강제 전량매도
-    if DOWNTREND_SELL_START <= ctx['now_hhmm'] < '0900' and trend_down and close < trend_ref:
+    # 영업일 종료 20분 전(UPBIT 08:40) 이후 하락추세 지속 시 강제 전량매도
+    if ctx['elapsed_hours'] >= DOWNTREND_SELL_START_HOURS and trend_down and close < trend_ref:
         execute_sell(
             conn, ctx, DEFAULT_FULL_SELL_RATIO, 'DOWNTREND',
             f"[장마감전] 종가:{format_number(close)}원, 하락추세 기준가({format_number(trend_ref)}) 이탈",
@@ -730,13 +773,13 @@ def process_row(conn, user, market, cust_num, acct_no, access_key, secret_key, t
     code = prd_nm.split('-')[-1] if '-' in prd_nm else prd_nm
 
     now = datetime.now()
-    now_hhmm = now.strftime("%H%M")
+    elapsed_hours = get_elapsed_hours(market, now)
 
-    # 09:00~09:10 미처리
-    if '0900' <= now_hhmm < PREMARKET_END:
+    # 영업일 시작 후 10분 미처리
+    if elapsed_hours < PREMARKET_END_HOURS:
         return
 
-    candles = fetch_minute_candles(code, 1, 2)
+    candles = fetch_minute_candles(market, code, 1, 2)
     if not candles:
         return
     candles_sorted = sorted(candles, key=lambda c: c['candle_date_time_kst'])
@@ -767,7 +810,7 @@ def process_row(conn, user, market, cust_num, acct_no, access_key, secret_key, t
         'wait_state': wait_state, 'last_alert_keys': dict(last_alert_keys or {}),
         'high': float(latest['high_price']), 'low': float(latest['low_price']),
         'close': float(latest['trade_price']), 'acml_vol': float(latest['candle_acc_trade_volume']),
-        'now_hhmm': now_hhmm, 'user': user, 'market': market, 'cust_num': cust_num, 'acct_no': acct_no,
+        'elapsed_hours': elapsed_hours, 'user': user, 'market': market, 'cust_num': cust_num, 'acct_no': acct_no,
         'access_key': access_key, 'secret_key': secret_key, 'trail_day': trail_day,
         'short_market_down': short_market_down,
     }
@@ -845,12 +888,15 @@ def analyze_trail(user, market):
         conn.close()
 
 
-# 실행 (market_name = 'UPBIT' 우선 구현 — BITHUMB는 추후 확장)
+# 실행 (UPBIT/BITHUMB 모두 지원)
 if __name__ == "__main__":
     nickname_list = [
         {"cust_nm": "phills2", "market_name": "UPBIT"},
         {"cust_nm": "mama", "market_name": "UPBIT"},
         {"cust_nm": "honey", "market_name": "UPBIT"},
+        {"cust_nm": "phills2", "market_name": "BITHUMB"},
+        {"cust_nm": "mama", "market_name": "BITHUMB"},
+        {"cust_nm": "honey", "market_name": "BITHUMB"},
     ]
 
     for nick in nickname_list:
