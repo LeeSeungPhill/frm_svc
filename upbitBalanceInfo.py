@@ -783,7 +783,7 @@ def update_bit_fund_mng_realtime(cust_info, market, conn):
             SELECT prd_nm, through_price, leave_price, resist_price, support_price, trend_high_price, trend_low_price
             FROM bit_interest_item
             WHERE market_name = %s AND prd_nm IN ('BTC', 'ETH')
-        """, (market))
+        """, (market,))
         interest_rows = cur4.fetchall()
         cur4.close()
 
