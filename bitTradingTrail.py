@@ -243,9 +243,11 @@ def get_order(access_key, secret_key, order_uuid):
 # 영업일/시장흐름
 # ─────────────────────────────────────────
 
-def get_business_day(now=None):
+def get_business_day(market_name, now=None):
+    """trail_day 기준일 : UPBIT는 당일 09:00부터 익일 08:59까지, BITHUMB는 당일 00:00부터 23:59까지를
+    하나의 영업일로 취급한다. (bitTradingSet.py의 get_business_day()와 동일 규칙)"""
     now = now or datetime.now()
-    if now.hour < 9:
+    if market_name == 'UPBIT' and now.hour < 9:
         return (now - timedelta(days=1)).strftime("%Y%m%d")
     return now.strftime("%Y%m%d")
 
@@ -790,7 +792,7 @@ def analyze_trail(user, market):
         port=DB_PORT
     )
 
-    trail_day = get_business_day()
+    trail_day = get_business_day(market)
 
     try:
         cur0 = conn.cursor()

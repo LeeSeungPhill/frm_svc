@@ -17,11 +17,11 @@ conn = psycopg2.connect(
     port=DB_PORT
 )
 
-def get_business_day(now=None):
-    """trail_day 기준일 : 당일 09:00부터 익일 08:59까지를 하나의 영업일로 취급한다.
-    (bitTradingTrail.py의 get_business_day()와 동일 규칙)"""
+def get_business_day(market_name, now=None):
+    """trail_day 기준일 : UPBIT는 당일 09:00부터 익일 08:59까지, BITHUMB는 당일 00:00부터 23:59까지를
+    하나의 영업일로 취급한다. (bitTradingTrail.py의 get_business_day()와 동일 규칙)"""
     now = now or datetime.now()
-    if now.hour < 9:
+    if market_name == 'UPBIT' and now.hour < 9:
         now = now - timedelta(days=1)
     return now
 
@@ -112,9 +112,6 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
         cur3.close()
 
 def create_bit_trading_trail():
-    biz_dt = get_business_day()
-    today = biz_dt.strftime("%Y%m%d")
-    prev_day = (biz_dt - timedelta(days=1)).strftime("%Y%m%d")
     now_time = datetime.now().strftime("%H%M%S")
     user_id = "TRAIL_AUTO"
 
@@ -129,6 +126,10 @@ def create_bit_trading_trail():
 
     for nick in nickname_list:
         try:
+            biz_dt = get_business_day(nick['market_name'])
+            today = biz_dt.strftime("%Y%m%d")
+            prev_day = (biz_dt - timedelta(days=1)).strftime("%Y%m%d")
+
             cur0 = conn.cursor()
             cur0.execute("SELECT cust_num, acct_no FROM cust_mng WHERE cust_nm = %s AND market_name = %s", (nick['cust_nm'], nick['market_name']))
             cust_row = cur0.fetchone()
