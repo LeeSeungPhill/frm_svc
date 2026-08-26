@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 DB_NAME = "universe"
 DB_USER = "postgres"
 DB_PASSWORD = "asdf1234"
-DB_HOST = "localhost"  # 원격 서버라면 해당 서버의 IP 또는 도메인
+DB_HOST = "192.168.50.81"  # 원격 서버라면 해당 서버의 IP 또는 도메인
 DB_PORT = "5432"  # 기본 포트
 
 # PostgreSQL 데이터베이스에 연결
@@ -113,7 +113,7 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
                 eth_long      = EXCLUDED.eth_long,
                 last_chg_date = EXCLUDED.last_chg_date
         """, (
-            acct_no, cust_num, market_name, prev_day,
+            acct_no, cust_num, market_name, datetime.now().strftime("%Y%m%d"),
             cash_amt, cash_amt, user_evlu_amt, tot_evlu_amt, nass_amt,
             pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt, 
             market_ratio, btc_short, eth_short, btc_mid, eth_mid, btc_long, eth_long, 
@@ -136,9 +136,9 @@ def create_bit_trading_trail():
     user_id = "TRAIL_AUTO"
 
     nickname_list = [
-        {"cust_nm": "phills2", "market_name": "UPBIT"},
-        {"cust_nm": "mama", "market_name": "UPBIT"},
-        {"cust_nm": "honey", "market_name": "UPBIT"},
+        # {"cust_nm": "phills2", "market_name": "UPBIT"},
+        # {"cust_nm": "mama", "market_name": "UPBIT"},
+        # {"cust_nm": "honey", "market_name": "UPBIT"},
         {"cust_nm": "phills2", "market_name": "BITHUMB"},
         {"cust_nm": "mama", "market_name": "BITHUMB"},
         {"cust_nm": "honey", "market_name": "BITHUMB"},
