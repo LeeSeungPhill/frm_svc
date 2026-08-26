@@ -149,7 +149,7 @@ def create_bit_trading_trail():
                 SELECT
                     A.acct_no, A.cust_num, A.market_name, A.prd_nm,
                     A.hold_price, A.hold_volume, A.hold_amt,
-                    A.loss_price, A.target_price, A.exit_price,
+                    A.stop_price, A.action_price, A.exit_price,
                     T.trail_tp AS prev_trail_tp
                 FROM balance_info A
                 JOIN cust_mng B ON A.cust_num = B.cust_num
@@ -185,7 +185,7 @@ def create_bit_trading_trail():
                         acct_no, cust_num, market_name, prd_nm,
                         trail_day, trail_dtm, trail_tp,
                         basic_price, basic_vol, basic_amt,
-                        stop_price, target_price, exit_price, trade_tp, loss_amt,
+                        stop_price, action_price, exit_price, trade_tp, loss_amt,
                         regr_id, reg_date, chgr_id, chg_date
                     ) VALUES (
                         %s, %s, %s, %s,
@@ -200,13 +200,13 @@ def create_bit_trading_trail():
                 inserted_count = 0
 
                 for row in result_1:
-                    acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, hold_amt, loss_price, target_price, exit_price, prev_trail_tp = row
+                    acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, hold_amt, stop_price, action_price, exit_price, prev_trail_tp = row
 
                     basic_price = float(hold_price) if hold_price else 0
                     basic_vol = float(hold_volume) if hold_volume else 0
-                    stop_price = float(loss_price) if loss_price else 0
-                    trail_target_price = float(target_price) if target_price else 0
-                    trail_exit_price = float(exit_price) if exit_price else 0
+                    stop_price = float(stop_price) if stop_price else 0
+                    action_price = float(action_price) if action_price else 0
+                    exit_price = float(exit_price) if exit_price else 0
                     loss_amt = int((basic_price - stop_price) * basic_vol) if stop_price > 0 else 0
 
                     trail_tp = 'L' if prev_trail_tp in ('3', 'L') else '1'
@@ -216,7 +216,7 @@ def create_bit_trading_trail():
                             acct_no, cust_num, market_name, prd_nm,
                             today, '090000' if market_name == 'UPBIT' else '000000', trail_tp,
                             basic_price, basic_vol, hold_amt,
-                            stop_price, trail_target_price, trail_exit_price, 'M', loss_amt,
+                            stop_price, action_price, exit_price, 'M', loss_amt,
                             user_id, datetime.now(), user_id, datetime.now()
                         ))
                         if cur2.rowcount > 0:

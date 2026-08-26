@@ -473,7 +473,7 @@ def execute_sell(conn, ctx, ratio_pct, trade_result, reason, **extra_state):
 def process_tp1(conn, ctx, tenmin_key):
     code = ctx['code']
     low, high, close, acml_vol = ctx['low'], ctx['high'], ctx['close'], ctx['acml_vol']
-    stop_price, exit_price, target_price = ctx['stop_price'], ctx['exit_price'], ctx['target_price']
+    stop_price, exit_price, action_price = ctx['stop_price'], ctx['exit_price'], ctx['action_price']
     chk_vol = ctx['volumn']
 
     wait = dict(ctx['wait_state'].get('bw1', {}))
@@ -524,7 +524,7 @@ def process_tp1(conn, ctx, tenmin_key):
                 send_slack_message("#매매신호", msg)
 
     # 목표가 돌파 → 기준봉 생성 후 트레일링(2) 전환
-    if target_price > 0 and high >= target_price:
+    if action_price > 0 and high >= action_price:
         series = fetch_10min_series(ctx['market'], code)
         bar = next((c for c in series if c['key'] == tenmin_key), None)
         if bar is not None:
@@ -535,7 +535,7 @@ def process_tp1(conn, ctx, tenmin_key):
                 last_alert_keys=ctx['last_alert_keys'],
             )
             msg = (
-                f"-{ctx['user']}-[{ctx['market']}] {code} 목표가({format_number(target_price)}) 돌파 → "
+                f"-{ctx['user']}-[{ctx['market']}] {code} 목표가({format_number(action_price)}) 돌파 → "
                 f"기준봉 생성(고가:{format_number(bar['high'])}/저가:{format_number(bar['low'])}) → 트레일링(2) 전환"
             )
             print(msg)
@@ -767,7 +767,7 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
 # ─────────────────────────────────────────
 
 def process_row(conn, user, market, cust_num, acct_no, access_key, secret_key, trail_day, row):
-    (trail_id, prd_nm, trail_tp, basic_price, basic_vol, stop_price, target_price, exit_price,
+    (trail_id, prd_nm, trail_tp, basic_price, basic_vol, stop_price, action_price, exit_price,
      peak_price, base_low, base_high, base_vol, volumn, trail_plan, proc_min, wait_state, last_alert_keys) = row
 
     code = prd_nm.split('-')[-1] if '-' in prd_nm else prd_nm
@@ -804,7 +804,7 @@ def process_row(conn, user, market, cust_num, acct_no, access_key, secret_key, t
     ctx = {
         'trail_id': trail_id, 'code': code,
         'basic_price': float(basic_price or 0), 'basic_vol': float(basic_vol or 0),
-        'stop_price': float(stop_price or 0), 'target_price': float(target_price or 0), 'exit_price': float(exit_price or 0),
+        'stop_price': float(stop_price or 0), 'action_price': float(action_price or 0), 'exit_price': float(exit_price or 0),
         'peak_price': float(peak_price or 0), 'base_low': float(base_low or 0), 'base_high': float(base_high or 0),
         'base_vol': float(base_vol or 0), 'volumn': float(volumn or 0), 'trail_plan': trail_plan, 'proc_min': proc_min,
         'wait_state': wait_state, 'last_alert_keys': dict(last_alert_keys or {}),
@@ -859,7 +859,7 @@ def analyze_trail(user, market):
 
         cur1 = conn.cursor()
         cur1.execute("""
-            SELECT id, prd_nm, trail_tp, basic_price, basic_vol, stop_price, target_price, exit_price,
+            SELECT id, prd_nm, trail_tp, basic_price, basic_vol, stop_price, action_price, exit_price,
                    peak_price, base_low, base_high, base_vol, volumn, trail_plan, proc_min, wait_state, last_alert_keys
             FROM bit_trading_trail
             WHERE cust_num = %s AND market_name = %s AND trail_day = %s

@@ -44,7 +44,9 @@ def analyze_data():
                     A.current_price, 
                     A.current_amt,
                     A.loss_price,
-                    A.target_price, 
+                    A.target_price,
+                    A.stop_price, 
+                    A.action_price,
                     A.exit_price,
                     A.trading_plan,
                     A.proc_yn, 
@@ -86,6 +88,8 @@ def analyze_data():
                     current_amt,
                     loss_price,
                     target_price, 
+                    stop_price,
+                    action_price,
                     exit_price,
                     trading_plan,
                     proc_yn, 
@@ -93,15 +97,15 @@ def analyze_data():
                     reg_date, 
                     chgr_id, 
                     chg_date
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (sday, acct_no, cust_num, market_name, prd_nm) DO NOTHING
             """
 
             for row in result_1:
-                acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, old_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, loss_price, target_price, exit_price, trading_plan, proc_yn, regr_id, reg_date, chgr_id, chg_date = row
+                acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, old_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, loss_price, target_price, stop_price, action_price, exit_price, trading_plan, proc_yn, regr_id, reg_date, chgr_id, chg_date = row
                 try:
                     cur2.execute(insert_query1, (
-                        today, acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, old_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, loss_price, target_price, exit_price, trading_plan, proc_yn, regr_id, reg_date, chgr_id, chg_date
+                        today, acct_no, cust_num, market_name, prd_nm, hold_price, hold_volume, old_amt, loss_profit_rate, last_order_no, last_buy_count, last_sell_count, current_price, current_amt, loss_price, target_price, stop_price, action_price, exit_price, trading_plan, proc_yn, regr_id, reg_date, chgr_id, chg_date
                     ))
                 except Exception as e:
                     print(f"{today}[{nick['cust_nm']}-{nick['market_name']}] Error dly_balance_info inserting row {row}: {e}")
