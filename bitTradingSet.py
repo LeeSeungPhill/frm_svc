@@ -62,7 +62,7 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
     # 직전 집계일(dt < prev_day) 대비 자산증감액
     cur2 = conn.cursor()
     cur2.execute("""
-        SELECT tot_evlu_amt FROM public.bit_fund_mng
+        SELECT tot_evlu_amt, market_ratio, btc_short, btc_mid, btc_long, eth_short, eth_mid, eth_long FROM public.bit_fund_mng
         WHERE acct_no = %s AND cust_num = %s AND market_name = %s AND dt < %s
         ORDER BY dt DESC LIMIT 1
     """, (acct_no, cust_num, market_name, prev_day))
@@ -70,6 +70,13 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
     cur2.close()
     prev_tot_evlu_amt = int(prev_row[0]) if prev_row else tot_evlu_amt
     asst_icdc_amt = tot_evlu_amt - prev_tot_evlu_amt
+    market_ratio = prev_row[1]
+    btc_short = prev_row[2]
+    btc_mid = prev_row[3]
+    btc_long = prev_row[4]
+    eth_short = prev_row[5]
+    eth_mid = prev_row[6]
+    eth_long = prev_row[7]
 
     cur3 = conn.cursor()
     try:
@@ -77,11 +84,15 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
             INSERT INTO public.bit_fund_mng (
                 acct_no, cust_num, market_name, dt,
                 dnca_tot_amt, prvs_excc_amt, user_evlu_amt, tot_evlu_amt, nass_amt,
-                pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt, last_chg_date
+                pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt, 
+                market_ratio, btc_short, eth_short, btc_mid, eth_mid, btc_long, eth_long,
+                last_chg_date
             ) VALUES (
                 %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s
+                %s, %s, %s, %s, 
+                %s, %s, %s, %s, %s, %s, %s,
+                %s
             )
             ON CONFLICT (acct_no, cust_num, market_name, dt) DO UPDATE SET
                 dnca_tot_amt  = EXCLUDED.dnca_tot_amt,
@@ -93,11 +104,20 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
                 evlu_amt      = EXCLUDED.evlu_amt,
                 evlu_pfls_amt = EXCLUDED.evlu_pfls_amt,
                 asst_icdc_amt = EXCLUDED.asst_icdc_amt,
+                market_ratio  = EXCLUDED.market_ratio,
+                btc_short     = EXCLUDED.btc_short,
+                eth_short     = EXCLUDED.eth_short,
+                btc_mid       = EXCLUDED.btc_mid,
+                eth_mid       = EXCLUDED.eth_mid,
+                btc_long      = EXCLUDED.btc_long,
+                eth_long      = EXCLUDED.eth_long,
                 last_chg_date = EXCLUDED.last_chg_date
         """, (
             acct_no, cust_num, market_name, prev_day,
             cash_amt, cash_amt, user_evlu_amt, tot_evlu_amt, nass_amt,
-            pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt, datetime.now()
+            pchs_amt, evlu_amt, evlu_pfls_amt, asst_icdc_amt, 
+            market_ratio, btc_short, eth_short, btc_mid, eth_mid, btc_long, eth_long, 
+            datetime.now()
         ))
         conn.commit()
         print(
