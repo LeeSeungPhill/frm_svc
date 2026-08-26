@@ -124,6 +124,13 @@ def create_bit_trading_trail():
         {"cust_nm": "honey", "market_name": "BITHUMB"},
     ]
 
+    # 09시 실행 시에는 UPBIT 대상만, 0시 실행 시에는 BITHUMB 대상만 수행
+    current_hour = datetime.now().hour
+    if current_hour == 9:
+        nickname_list = [nick for nick in nickname_list if nick['market_name'] == 'UPBIT']
+    elif current_hour == 0:
+        nickname_list = [nick for nick in nickname_list if nick['market_name'] == 'BITHUMB']
+
     for nick in nickname_list:
         try:
             biz_dt = get_business_day(nick['market_name'])
