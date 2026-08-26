@@ -59,11 +59,11 @@ def update_bit_fund_mng(acct_no, cust_num, market_name, prev_day):
     tot_evlu_amt = cash_amt + evlu_amt          # 총자산 = 현금 + 평가금액
     nass_amt = tot_evlu_amt                     # 순자산(신용/대출 없음 → 총자산과 동일)
 
-    # 직전 집계일(dt < prev_day) 대비 자산증감액
+    # 직전 집계일(dt = prev_day) 대비 자산증감액
     cur2 = conn.cursor()
     cur2.execute("""
         SELECT tot_evlu_amt, market_ratio, btc_short, btc_mid, btc_long, eth_short, eth_mid, eth_long FROM public.bit_fund_mng
-        WHERE acct_no = %s AND cust_num = %s AND market_name = %s AND dt < %s
+        WHERE acct_no = %s AND cust_num = %s AND market_name = %s AND dt = %s
         ORDER BY dt DESC LIMIT 1
     """, (acct_no, cust_num, market_name, prev_day))
     prev_row = cur2.fetchone()
