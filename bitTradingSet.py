@@ -136,9 +136,9 @@ def create_bit_trading_trail():
     user_id = "TRAIL_AUTO"
 
     nickname_list = [
-        # {"cust_nm": "phills2", "market_name": "UPBIT"},
-        # {"cust_nm": "mama", "market_name": "UPBIT"},
-        # {"cust_nm": "honey", "market_name": "UPBIT"},
+        {"cust_nm": "phills2", "market_name": "UPBIT"},
+        {"cust_nm": "mama", "market_name": "UPBIT"},
+        {"cust_nm": "honey", "market_name": "UPBIT"},
         {"cust_nm": "phills2", "market_name": "BITHUMB"},
         {"cust_nm": "mama", "market_name": "BITHUMB"},
         {"cust_nm": "honey", "market_name": "BITHUMB"},
