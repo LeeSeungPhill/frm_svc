@@ -266,6 +266,80 @@ def get_order(access_key, secret_key, market, order_uuid):
     res = requests.get(api_url(market) + "/v1/order", params=params, headers=headers).json()
     return res
 
+def get_open_sell_orders(access_key, secret_key, market, code):
+    """해당 종목의 체결대기(wait/watch) 매도 주문 목록 조회.
+    업비트는 /v1/orders/open(states[]), 빗썸은 /v1/orders(state=wait)를 사용한다."""
+    if market == 'BITHUMB':
+        params = {'market': "KRW-" + code, 'state': 'wait'}
+        path = '/v1/orders'
+    else:
+        params = {'market': "KRW-" + code, 'states[]': ['wait', 'watch']}
+        path = '/v1/orders/open'
+    try:
+        headers = auth_headers(access_key, secret_key, market, params)
+        res = requests.get(api_url(market) + path, params=params, headers=headers).json()
+        if isinstance(res, list):
+            return [o for o in res if o.get('side') == 'ask']
+        print(f"[{market}-{code}] 미체결 주문 조회 실패: {res}")
+    except Exception as e:
+        print(f"[{market}-{code}] 미체결 주문 조회 오류: {e}")
+    return []
+
+def cancel_order(access_key, secret_key, market, order_uuid):
+    params = {"uuid": order_uuid}
+    headers = auth_headers(access_key, secret_key, market, params)
+    res = requests.delete(api_url(market) + "/v1/order", params=params, headers=headers).json()
+    return res
+
+def cancel_open_sell_orders(conn, ctx):
+    """시장가 매도 전, 기존 매도 미체결 주문을 취소해 묶여있는(locked) 수량을 해제한다.
+    취소된 주문은 trade_mng.ord_state 를 'cancel'로 갱신한다. 취소 건수를 반환."""
+    code = ctx['code']
+    market = ctx['market']
+    user = ctx['user']
+    access_key = ctx['access_key']
+    secret_key = ctx['secret_key']
+
+    open_orders = get_open_sell_orders(access_key, secret_key, market, code)
+    canceled = 0
+    for o in open_orders:
+        ord_uuid = o.get('uuid')
+        if not ord_uuid:
+            continue
+        try:
+            res = cancel_order(access_key, secret_key, market, ord_uuid)
+        except Exception as e:
+            print(f"[{user}-{market}-{code}] 매도주문 취소 오류({ord_uuid}): {e}")
+            continue
+        if "uuid" not in res:
+            msg = f"-{user}-[{market}] {code} 기존 매도주문 취소 실패({ord_uuid}) => {res.get('error', {}).get('message', res)}"
+            print(msg)
+            send_slack_message("#매매신호", msg)
+            continue
+
+        canceled += 1
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE trade_mng SET ord_state = 'cancel', executed_vol = %s, remaining_vol = %s, chgr_id = %s, chg_date = %s
+            WHERE cust_num = %s AND market_name = %s AND ord_no = %s AND ord_state IN ('wait', 'watch')
+        """, (
+            Decimal(str(o.get('executed_volume') or 0)), Decimal(str(o.get('remaining_volume') or 0)),
+            USER_ID, datetime.now(), ctx['cust_num'], market, ord_uuid
+        ))
+        conn.commit()
+        cur.close()
+
+        msg = (
+            f"-{user}-[{market}] {code} 기존 매도주문 취소 : 주문가 {format_number(o.get('price') or 0)}원, "
+            f"미체결량 {format_number(float(o.get('remaining_volume') or 0))}, 주문번호 : {ord_uuid}"
+        )
+        print(msg)
+        send_slack_message("#매매신호", msg)
+
+    if canceled > 0:
+        time.sleep(1)  # 취소 반영(locked 수량 해제) 대기
+    return canceled
+
 
 # ─────────────────────────────────────────
 # 영업일/시장흐름
@@ -391,6 +465,10 @@ def execute_sell(conn, ctx, ratio_pct, trade_result, reason, **extra_state):
 
     ratio_pct = min(max(float(ratio_pct), 0), 100)
     intended_qty = basic_vol * (ratio_pct / 100.0)
+
+    # 기존 매도 미체결 주문이 있으면 취소 후 진행 (주문에 묶인 수량은 가용잔고에서 제외되므로)
+    cancel_open_sell_orders(conn, ctx)
+
     available_volume = get_available_volume(access_key, secret_key, market, code)
     sell_volume = min(intended_qty, available_volume) if available_volume > 0 else 0
 
@@ -754,12 +832,12 @@ def process_tpL(conn, ctx, tenmin_key, is_last_of_tenmin):
             update_trail_row(conn, ctx['trail_id'], last_alert_keys=ctx['last_alert_keys'])
 
     # 영업일 종료 20분 전(UPBIT 08:40) 이후 하락추세 지속 시 강제 전량매도
-    if ctx['elapsed_hours'] >= DOWNTREND_SELL_START_HOURS and trend_down and close < trend_ref:
-        execute_sell(
-            conn, ctx, DEFAULT_FULL_SELL_RATIO, 'DOWNTREND',
-            f"[장마감전] 종가:{format_number(close)}원, 하락추세 기준가({format_number(trend_ref)}) 이탈",
-            wait_state={}, last_alert_keys=ctx['last_alert_keys'],
-        )
+    # if ctx['elapsed_hours'] >= DOWNTREND_SELL_START_HOURS and trend_down and close < trend_ref:
+    #     execute_sell(
+    #         conn, ctx, DEFAULT_FULL_SELL_RATIO, 'DOWNTREND',
+    #         f"[장마감전] 종가:{format_number(close)}원, 하락추세 기준가({format_number(trend_ref)}) 이탈",
+    #         wait_state={}, last_alert_keys=ctx['last_alert_keys'],
+    #     )
 
 
 # ─────────────────────────────────────────
