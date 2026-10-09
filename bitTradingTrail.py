@@ -12,7 +12,12 @@ from urllib.parse import urlencode, unquote
 from decimal import Decimal
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import builtins
 load_dotenv()
+
+def print(*args, **kwargs):
+    """콘솔 로그 앞에 시분초([HH:MM:SS]) 표시"""
+    builtins.print(f"[{datetime.now().strftime('%H:%M:%S')}]", *args, **kwargs)
 
 # ─────────────────────────────────────────
 # kis_trading_trail_vol_state.py 의 trail_tp='1'/'2'/'L' 매매추적 로직을 업비트/빗썸(24시간 시장)에 맞게 이식한다.
