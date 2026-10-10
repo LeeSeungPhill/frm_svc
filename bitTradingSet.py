@@ -171,7 +171,7 @@ def create_bit_trading_trail():
             cur1 = conn.cursor()
 
             # 잔고정보 조회 (KRW 현금 제외, 보유수량 존재 대상) + 전일 매매추적정보(trail_tp) 승계
-            # 전일 trail_tp IN ('1','L') 대상은 동일한 trail_tp로, trail_tp = '3' 대상은 'L'로 승격하여 오늘자 생성
+            # 전일 trail_tp = '3'/'L' 대상은 'L'로, 'P'/'C'/'U'(멈춤·취소·변경) 대상은 'P'로 승계하고 그 외는 '1'로 오늘자 생성
             select1 = """
                 SELECT
                     A.acct_no, A.cust_num, A.market_name, A.prd_nm,
@@ -236,7 +236,7 @@ def create_bit_trading_trail():
                     exit_price = float(exit_price) if exit_price else 0
                     loss_amt = int((basic_price - stop_price) * basic_vol) if stop_price > 0 else 0
 
-                    trail_tp = 'L' if prev_trail_tp in ('3', 'L') else '1'
+                    trail_tp = 'L' if prev_trail_tp in ('3', 'L') else 'P' if prev_trail_tp in ('P', 'C', 'U') else '1'
 
                     try:
                         cur2.execute(insert_query1, (
