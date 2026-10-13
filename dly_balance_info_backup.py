@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 import psycopg2
 import requests
-import schedule
 import time
 
 UPBIT_API = "https://api.upbit.com"
@@ -198,10 +197,3 @@ if __name__ == "__main__":
     # print("잔고정보 백업 작업을 매일 실행합니다...")
 
     analyze_data()
-    # 거래소별 일봉 마감 직전 실행되도록 스케줄 설정 (UPBIT: 08:50, BITHUMB: 23:50)
-    # schedule.every().day.at("08:50").do(analyze_data)
-    # schedule.every().day.at("23:50").do(analyze_data)
-
-    # while True:
-    #     schedule.run_pending()
-    #     time.sleep(1)

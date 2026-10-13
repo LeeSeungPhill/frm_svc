@@ -607,9 +607,18 @@ def process_tp1(conn, ctx, tenmin_key):
                 send_slack_message("#매매신호", msg)
 
     # 목표가 돌파 → 기준봉 생성 후 트레일링(2) 전환
-    if action_price > 0 and high >= action_price:
+    # 돌파 분봉이 속한 10분봉은 아직 형성 중이라 fetch_10min_series()에서 제외되므로, 돌파 10분봉 키를
+    # wait_state['action_key']에 저장해 두고 해당 10분봉이 완성된 이후 기준봉을 생성한다.
+    action_key = ctx['wait_state'].get('action_key')
+    if action_key is None and action_price > 0 and high >= action_price:
+        action_key = tenmin_key.strftime("%Y%m%d%H%M")
+        ctx['wait_state']['action_key'] = action_key
+        print(f"-{ctx['user']}-[{ctx['market']}] {code} 목표가({format_number(action_price)}) 돌파 감지 → {action_key[8:]} 10분봉 완성 후 기준봉 생성 대기")
+
+    if action_key is not None:
+        action_dt = datetime.strptime(action_key, "%Y%m%d%H%M")
         series = fetch_10min_series(ctx['market'], code)
-        bar = next((c for c in series if c['key'] == tenmin_key), None)
+        bar = next((c for c in series if c['key'] == action_dt), None)
         if bar is not None:
             update_trail_row(
                 conn, ctx['trail_id'], trail_tp='2', base_low=bar['low'], base_high=bar['high'],
