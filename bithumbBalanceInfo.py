@@ -924,14 +924,17 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
             # 잔고 조회
             accounts = requests.get(api_url + '/v1/accounts', headers=headers).json()
+            accounts_ok = True
 
         except Exception as e:
             print(f"[{user}-잔고 조회 예외] 오류 발생: {e}")
             accounts = []  # 또는 None 등, 이후 구문에서 사용할 수 있도록 기본값 설정
+            accounts_ok = False
         
         if not isinstance(accounts, list):
             print(f"[{user}-잔고 조회] 리스트 형태 아님: {accounts}")
             accounts = []
+            accounts_ok = False
             
         trade_cash = 0
         
@@ -1145,6 +1148,16 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
 
             cur034.close()
 
+        # 잔고 조회 실패시 잔고정보 일괄 삭제 방지를 위해 잔고정보 현행화 미처리
+        if not accounts_ok:
+            print(f"[{user}-잔고 조회 실패] 잔고정보 현행화 미처리 (기존 잔고정보 유지)")
+            cur01.close()
+            conn.close()
+            return
+
+        # Ticker 조회 실패 등으로 현행화되지 않은 보유 상품(삭제 제외 대상)
+        keep_prd_list = []
+
         cur02 = conn.cursor()
         upd_param1 = (
             user_id,   # chgr_id
@@ -1191,16 +1204,18 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                         error_name = res['error'].get('name', 'Unknown')
                         error_message = res['error'].get('message', 'Unknown')
                         print(f"[{user}-Ticker 조회 오류] {error_name}: {error_message}")
+                        keep_prd_list.append("KRW-"+item['currency'])
                         continue
 
                 except Exception as e:
                     print(f"[{user}-Ticker 조회 예외] 오류 발생: {e}")
                     res = None 
                 
-                if len(res) > 0:    
+                if res and len(res) > 0:    
                     current_price = float(res[0]['trade_price'])
                     
                     if current_price == 0:
+                        keep_prd_list.append("KRW-"+item['currency'])
                         continue
 
                     # 현재평가금액
@@ -1421,6 +1436,7 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
                 
                 else:
                     print("Ticker 데이터가 없습니다.")
+                    keep_prd_list.append("KRW-"+item['currency'])
                 
                 time.sleep(0.1)
             
@@ -1477,10 +1493,11 @@ def analyze_data(user, market, trend_type, prd_list, plan_amt):
         cur04 = conn.cursor()
         del_param1 = (
             cust_info['cust_num'],   
+            keep_prd_list,
         )
         
-        # 잔고정보 치리여부(proc_yn = 'N') 대상 일괄 삭제 처리
-        delete1 = """DELETE FROM balance_info WHERE proc_yn = 'N' AND cust_num = %s """
+        # 잔고정보 치리여부(proc_yn = 'N') 대상 일괄 삭제 처리 (Ticker 조회 실패 대상 제외)
+        delete1 = """DELETE FROM balance_info WHERE proc_yn = 'N' AND cust_num = %s AND prd_nm <> ALL(%s::text[]) """
         cur04.execute(delete1, del_param1)
         conn.commit()
         cur04.close()
